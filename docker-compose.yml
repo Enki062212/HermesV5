@@ -1,0 +1,66 @@
+# Hermes + Exponify Unified Platform - Docker Compose
+
+version: '3.8'
+
+services:
+  # ═══════════════════════════════════════════════════════════════════════
+  # Frontend - Vite React App
+  # ═══════════════════════════════════════════════════════════════════════
+  hermes-frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: development  # Use 'production' for prod builds
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+      - VITE_BACKEND_URL=http://localhost:5055
+    command: npm run dev -- --host 0.0.0.0
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Production build (uncomment for production)
+  # ═══════════════════════════════════════════════════════════════════════
+  # hermes-production:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #     target: production
+  #   ports:
+  #     - "80:80"
+  #   restart: unless-stopped
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # Backend (if you have one)
+  # ═══════════════════════════════════════════════════════════════════════
+  # backend:
+  #   build:
+  #     context: ./hermes-backend
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "5055:5055"
+  #   environment:
+  #     - NODE_ENV=production
+  #     - DATABASE_URL=postgresql://user:pass@db:5432/hermes
+  #   depends_on:
+  #     - db
+
+  # ═══════════════════════════════════════════════════════════════════════
+  # PostgreSQL Database (optional)
+  # ═══════════════════════════════════════════════════════════════════════
+  # db:
+  #   image: postgres:15-alpine
+  #   environment:
+  #     POSTGRES_USER: hermes
+  #     POSTGRES_PASSWORD: hermes_secret
+  #     POSTGRES_DB: hermes_db
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+
+# volumes:
+#   postgres_data:
