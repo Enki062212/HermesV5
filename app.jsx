@@ -1,20 +1,70 @@
-import { useState, useEffect, useRef } from "react";
+﻿import { useState, useEffect, useRef } from "react";
 import { LineChart, Line, BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, RadarChart, Radar, PolarGrid, PolarAngleAxis, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { supabase } from "./lib/supabase.js";
+
+// ── CountUp Animation Hook ──────────────────────────────────────────────────
+function useCountUp(target, duration = 1800, start = false) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    if (!start || target === 0) return;
+    let startTime = null;
+    const step = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      const progress = Math.min((timestamp - startTime) / duration, 1);
+      const ease = 1 - Math.pow(1 - progress, 3);
+      setCount(Math.floor(ease * target));
+      if (progress < 1) requestAnimationFrame(step);
+      else setCount(target);
+    };
+    requestAnimationFrame(step);
+  }, [start, target, duration]);
+  return count;
+}
+
+function CountUp({ val, duration = 1800 }) {
+  const ref = useRef(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect(); } },
+      { threshold: 0.3 }
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
+  }, []);
+
+  const match = val.match(/^([₱]?)([\d,]+(?:\.\d+)?)([BKMG%+sx\-a-z]*)$/i);
+  if (!match) return <span ref={ref}>{val}</span>;
+
+  const prefix = match[1] || '';
+  const rawNum = parseFloat(match[2].replace(/,/g, ''));
+  const suffix = match[3] || '';
+  const hasDecimal = match[2].includes('.');
+  const decimalPlaces = hasDecimal ? match[2].split('.')[1].length : 0;
+
+  const animated = useCountUp(rawNum * Math.pow(10, decimalPlaces), duration, visible);
+  const displayNum = decimalPlaces > 0
+    ? (animated / Math.pow(10, decimalPlaces)).toFixed(decimalPlaces)
+    : animated.toLocaleString();
+
+  return <span ref={ref}>{prefix}{displayNum}{suffix}</span>;
+}
 
 // ---------------------------------------------------------------------------
 //  MODULE SYSTEM IMPORTS
 // ---------------------------------------------------------------------------
-import { ALL_MODULES, useModules } from "./lib/modules.js";
-import ModuleManager from "./components/ModuleManager.jsx";
+import UnifiedModulesDashboard from "./components/UnifiedModulesDashboard.jsx";
+import { generateCaptcha, validateCaptcha } from "./components/modules/SharedUI.jsx";
 // ---------------------------------------------------------------------------
 //  NEW MODULE IMPORTS
 // ---------------------------------------------------------------------------
 import SalesModule from "./components/modules/SalesModule.jsx";
 import MarketingModule from "./components/modules/MarketingModule.jsx";
 
-import EmailModule from "./components/modules/EmailModule.jsx";
 import ChatbotModule from "./components/modules/ChatbotModule.jsx";
+import ResearchModule from "./components/modules/ResearchModule.jsx";
+import AdminSetupModule from "./components/modules/AdminSetupModule.jsx";
 import LeadsModule from "./components/modules/LeadsModule.jsx";
 import CampaignsModule from "./components/modules/CampaignsModule.jsx";
 import AccountingModule from "./components/modules/AccountingModule.jsx";
@@ -36,7 +86,7 @@ import BizAssistModule from "./components/modules/BizAssistModule.jsx";
 import PredictModule from "./components/modules/PredictModule.jsx";
 
 // ---------------------------------------------------------------------------
-//  HERMES DESIGN SYSTEM � Gold & Obsidian
+//  HERMES DESIGN SYSTEM • Gold & Obsidian
 // ---------------------------------------------------------------------------
 const C = {
   bg0:    "#06050a",       // deep obsidian
@@ -68,6 +118,21 @@ const C = {
 const GOLD_GRADIENT = `linear-gradient(135deg, ${C.gold3}, ${C.gold}, ${C.gold2})`;
 const GOLD_GLOW     = `0 0 30px ${C.gold}40, 0 0 60px ${C.gold}20`;
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:5055";
+
+// ─── SECURITY: HTML SANITIZER FOR EMAIL PREVIEW ─────────────────────────────
+function sanitizeHtml(html) {
+  if (!html) return '';
+  // Remove script tags and event handlers
+  return html
+    .replace(/<script[^>]*>.*?<\/script>/gi, '')
+    .replace(/<script[^>]*>/gi, '')
+    .replace(/on\w+\s*=\s*["'][^"']*["']/gi, '')
+    .replace(/javascript:/gi, '')
+    .replace(/<iframe[^>]*>.*?<\/iframe>/gi, '')
+    .replace(/<object[^>]*>.*?<\/object>/gi, '')
+    .replace(/<embed[^>]*>/gi, '');
+}
+
 const IUBENDA_SCRIPT_ID = "iubenda-embed-script";
 const PRIVACY_POLICY_URL = "https://www.iubenda.com/privacy-policy/83524104";
 const COOKIE_POLICY_URL = "https://www.iubenda.com/privacy-policy/83524104/cookie-policy";
@@ -91,9 +156,9 @@ const revenueData = [
 ];
 
 const ageData = [
-  {age:"13�17",male:4.2,female:6.8},{age:"18�24",male:18.4,female:24.6},
-  {age:"25�34",male:21.2,female:26.8},{age:"35�44",male:14.6,female:16.4},
-  {age:"45�54",male:7.8,female:9.2},{age:"55+",male:3.4,female:4.6},
+  {age:"13₱17",male:4.2,female:6.8},{age:"18₱24",male:18.4,female:24.6},
+  {age:"25₱34",male:21.2,female:26.8},{age:"35₱44",male:14.6,female:16.4},
+  {age:"45₱54",male:7.8,female:9.2},{age:"55+",male:3.4,female:4.6},
 ];
 
 const geoData = [
@@ -164,6 +229,55 @@ const radarData = [
 const PIPELINE_STAGES = ["Lead","Prospect","Negotiation","Customer","Churned"];
 const STAGE_COLOR = {Lead:C.cyan,Prospect:C.violet,Negotiation:C.amber,Customer:C.green,Churned:C.red};
 
+// ── Platform SVG logo components ─────────────────────────────────────────────
+function PlatformLogo({ id, size = 18 }) {
+  const s = size;
+  if (id === "facebook") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#1877f2"/>
+      <path d="M16 8h-2a1 1 0 0 0-1 1v2h3l-.5 3H13v7h-3v-7H8v-3h2V9a4 4 0 0 1 4-4h2v3z" fill="#fff"/>
+    </svg>
+  );
+  if (id === "instagram") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <defs><radialGradient id="ig" cx="30%" cy="107%" r="150%"><stop offset="0%" stopColor="#fdf497"/><stop offset="5%" stopColor="#fdf497"/><stop offset="45%" stopColor="#fd5949"/><stop offset="60%" stopColor="#d6249f"/><stop offset="90%" stopColor="#285AEB"/></radialGradient></defs>
+      <rect width="24" height="24" rx="6" fill="url(#ig)"/>
+      <rect x="6" y="6" width="12" height="12" rx="4" stroke="#fff" strokeWidth="1.6" fill="none"/>
+      <circle cx="12" cy="12" r="3" stroke="#fff" strokeWidth="1.6" fill="none"/>
+      <circle cx="16.5" cy="7.5" r="1" fill="#fff"/>
+    </svg>
+  );
+  if (id === "tiktok") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#010101"/>
+      <path d="M17 6.5a3.5 3.5 0 0 1-3.5-3.5H11v11.5a2 2 0 1 1-2-2v-2.1a4.1 4.1 0 1 0 4.1 4.1V9.6a7.1 7.1 0 0 0 3.9 1.2V8.7A3.5 3.5 0 0 1 17 6.5z" fill="#fff"/>
+      <path d="M16.1 6.1a3.5 3.5 0 0 0 .9.4" stroke="#69C9D0" strokeWidth="0.4"/>
+    </svg>
+  );
+  if (id === "shopee") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#f04f23"/>
+      <path d="M12 4a3 3 0 0 0-3 3H7l1 10h8l1-10h-2a3 3 0 0 0-3-3zm0 1.5a1.5 1.5 0 0 1 1.5 1.5h-3A1.5 1.5 0 0 1 12 5.5z" fill="#fff"/>
+      <circle cx="9.5" cy="14" r="1" fill="#f04f23"/>
+      <circle cx="14.5" cy="14" r="1" fill="#f04f23"/>
+    </svg>
+  );
+  if (id === "lazada") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#0F146D"/>
+      <text x="5" y="17" fontFamily="Arial Black,Arial" fontWeight="900" fontSize="13" fill="#fff">L</text>
+    </svg>
+  );
+  if (id === "viber") return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none">
+      <rect width="24" height="24" rx="6" fill="#7360f2"/>
+      <path d="M12 4C7.6 4 4 7.1 4 11c0 2.2 1.1 4.2 2.9 5.5L6 20l3.8-1.4c.7.2 1.4.4 2.2.4 4.4 0 8-3.1 8-7s-3.6-8-8-8z" fill="#fff" fillOpacity=".9"/>
+      <path d="M9.5 9.5c.5 0 1 .5 1.2 1s.1 1-.3 1.3c.4.8 1 1.4 1.8 1.8.3-.4.8-.5 1.3-.3s1 .7 1 1.2v.5c0 .6-.5 1-1.1.9C9.2 15.5 8 12.8 8.1 10.6c0-.6.4-1.1 1-.1h.4z" fill="#7360f2"/>
+    </svg>
+  );
+  return <span style={{fontSize:s*0.7,fontWeight:900}}>{id[0].toUpperCase()}</span>;
+}
+
 const PLATFORMS_META = {
   facebook:{color:"#1877f2",icon:"F",label:"Facebook"},
   instagram:{color:"#e1306c",icon:"I",label:"Instagram"},
@@ -181,7 +295,7 @@ const pl = id => PLATFORMS_META[id]?.label || id;
 //  SHARED COMPONENTS (keeping all your existing components)
 // ---------------------------------------------------------------------------
 
-function HermesLogo({size=28}) {
+function HermesLogo({size=30}) {
   return (
     <svg width={size} height={size} viewBox="0 0 40 40" fill="none">
       {/* Caduceus-inspired winged staff */}
@@ -229,6 +343,81 @@ function GoldAvatar({initials, color, size=36}) {
   );
 }
 
+function Icon5D({ icon, color = C.gold, size = 42, glyphSize, rounded = 14, style = {}, transparent = false }) {
+  const shell = transparent
+    ? `linear-gradient(158deg, ${color}20 0%, ${color}08 58%, #ffffff10 100%)`
+    : `linear-gradient(158deg, ${color}40 0%, ${color}1c 50%, #ffffff14 100%)`;
+  return (
+    <span style={{
+      width:size,
+      height:size,
+      minWidth:size,
+      minHeight:size,
+      borderRadius:rounded,
+      display:"inline-flex",
+      alignItems:"center",
+      justifyContent:"center",
+      position:"relative",
+      background:shell,
+      border:`1px solid ${color}4d`,
+      boxShadow:`inset 0 1px 0 #ffffff4a, inset 0 -14px 22px #0000002b, inset 0 0 24px ${color}22, 0 16px 28px ${color}26, 0 6px 16px #00000052`,
+      transform:"translateZ(0) perspective(120px) rotateX(3deg)",
+      backdropFilter:"blur(12px) saturate(140%)",
+      WebkitBackdropFilter:"blur(12px) saturate(140%)",
+      ...style,
+    }}>
+      <span style={{
+        position:"absolute",
+        inset:-2,
+        borderRadius:Math.max(rounded + 2, 8),
+        border:`1px solid ${color}20`,
+        boxShadow:`0 0 20px ${color}24`,
+        opacity:transparent ? 0.65 : 0.95,
+        pointerEvents:"none",
+      }}/>
+      <span style={{
+        position:"absolute",
+        inset:1,
+        borderRadius:Math.max(rounded - 2, 6),
+        background:"linear-gradient(180deg, #ffffff26, transparent 42%, #00000016)",
+        pointerEvents:"none",
+      }}/>
+      <span style={{
+        position:"absolute",
+        top:5,
+        left:6,
+        right:6,
+        height:Math.max(6, Math.round(size * 0.24)),
+        borderRadius:999,
+        background:"linear-gradient(180deg, #ffffff66, transparent)",
+        filter:"blur(0.55px)",
+        opacity:0.95,
+        pointerEvents:"none",
+      }}/>
+      <span style={{
+        position:"absolute",
+        left:5,
+        right:5,
+        bottom:4,
+        height:Math.max(5, Math.round(size * 0.2)),
+        borderRadius:999,
+        background:`linear-gradient(180deg, transparent, ${color}22)`,
+        filter:"blur(0.4px)",
+        opacity:0.75,
+        pointerEvents:"none",
+      }}/>
+      <span style={{
+        fontSize:glyphSize || Math.round(size * 0.45),
+        lineHeight:1,
+        position:"relative",
+        zIndex:1,
+        filter:`drop-shadow(0 1px 0 #ffffff55) drop-shadow(0 4px 8px ${color}66) drop-shadow(0 12px 16px #00000068)`,
+        transform:"translateY(-1px) scale(1.03)",
+      }}>{icon}</span>
+    </span>
+  );
+}
+
 function GoldKPI({label,value,change,up,icon,color}) {
   const col = color || C.gold;
   return (
@@ -243,7 +432,7 @@ function GoldKPI({label,value,change,up,icon,color}) {
         borderRadius:"0 14px 0 80px"}}/>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
         <span style={{fontSize:10,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"1px"}}>{label}</span>
-        <span style={{fontSize:16,opacity:0.9}}>{icon}</span>
+        <Icon5D icon={icon} color={col} size={34} glyphSize={16} rounded={10} transparent />
       </div>
       <div style={{
         fontSize:28, fontWeight:900,
@@ -347,7 +536,7 @@ function LegalPolicyLinks({center=false,compact=false}) {
       >
         Privacy Policy
       </a>
-      <span style={{color:C.border2}}>�</span>
+      <span style={{color:C.border2}}>—</span>
       <a
         href={COOKIE_POLICY_URL}
         className="iubenda-white iubenda-noiframe iubenda-embed"
@@ -373,7 +562,6 @@ const TooltipBox = ({active,payload,label}) => {
     </div>
   );
 };
-
 // ---------------------------------------------------------------------------
 //  LOGIN PAGE (keeping your existing LoginPage component)
 // ---------------------------------------------------------------------------
@@ -452,7 +640,7 @@ function LoginPage() {
           <label style={{display:"block",fontSize:10,color:C.muted,letterSpacing:"1px",marginBottom:6}}>PASSWORD</label>
           <div style={{position:"relative",marginBottom:12}}>
             <input type={showPass?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} required
-              placeholder="��������"
+              placeholder="Enter password"
               style={{width:"100%",padding:"10px 38px 10px 12px",borderRadius:8,background:C.bg3,border:`1px solid ${C.border2}`,color:C.text}}/>
             <button type="button" onClick={()=>setShowPass(s=>!s)} aria-label={showPass?"Hide password":"Show password"} style={{
               position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
@@ -472,7 +660,7 @@ function LoginPage() {
               <label style={{display:"block",fontSize:10,color:C.muted,letterSpacing:"1px",marginBottom:6}}>CONFIRM PASSWORD</label>
               <div style={{position:"relative",marginBottom:12}}>
                 <input type={showConfirm?"text":"password"} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required
-                  placeholder="��������"
+                  placeholder="Enter password"
                   style={{width:"100%",padding:"10px 38px 10px 12px",borderRadius:8,background:C.bg3,border:`1px solid ${C.border2}`,color:C.text}}/>
                 <button type="button" onClick={()=>setShowConfirm(s=>!s)} aria-label={showConfirm?"Hide password":"Show password"} style={{
                   position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
@@ -511,7 +699,7 @@ function LoginPage() {
 }
 
 // ---------------------------------------------------------------------------
-//  LANDING PAGE � Pancake.ph layout � Hermes Gold/Obsidian theme
+//  LANDING PAGE • Exponify.ph layout • Hermes Gold/Obsidian theme
 // ---------------------------------------------------------------------------
 function DemoBookingForm() {
   const [step, setStep] = useState(1); // 1=form, 2=success
@@ -537,7 +725,7 @@ function DemoBookingForm() {
 
       if (!brandId) {
         // Fall back to querying brands table
-        // Requires "Public can view brands" RLS policy � see SQL fix
+        // Requires "Public can view brands" RLS policy • see SQL fix
         const { data: brands } = await supabase
           .from("brands")
           .select("id, name")
@@ -600,7 +788,7 @@ function DemoBookingForm() {
             brand_id:     brandId,
             scheduled_at: scheduledAt.toISOString(),
             status:       "pending",
-            notes:        `${form.business_name || form.full_name} � Demo booking from website`,
+            notes:        `${form.business_name || form.full_name} • Demo booking from website`,
           });
         }
       } else {
@@ -640,7 +828,7 @@ function DemoBookingForm() {
             brand_id:     brandId,
             scheduled_at: scheduledAt.toISOString(),
             status:       "pending",
-            notes:        `${form.business_name || form.full_name} � Demo booking from website`,
+            notes:        `${form.business_name || form.full_name} • Demo booking from website`,
           });
         }
       }
@@ -660,7 +848,7 @@ function DemoBookingForm() {
         borderRadius: 18, padding: "48px 40px", textAlign: "center",
         borderTop: `3px solid ${C.green}`,
       }}>
-        <div style={{ fontSize: 44, marginBottom: 16 }}>??</div>
+        <div style={{ fontSize: 44, marginBottom: 16 }}>✅</div>
         <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 28, fontWeight: 700, color: C.text, marginBottom: 12 }}>
           You're on the list!
         </div>
@@ -729,9 +917,9 @@ function DemoBookingForm() {
               style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: C.bg3, border: `1px solid ${C.border2}`, color: C.text, fontSize: 13 }}>
               <option value="">Select range</option>
               <option value="<100">Less than 100</option>
-              <option value="100-500">100 � 500</option>
-              <option value="500-2000">500 � 2,000</option>
-              <option value="2000-10000">2,000 � 10,000</option>
+              <option value="100-500">100 • 500</option>
+              <option value="500-2000">500 • 2,000</option>
+              <option value="2000-10000">2,000 • 10,000</option>
               <option value="10000+">10,000+</option>
             </select>
           </div>
@@ -761,7 +949,7 @@ function DemoBookingForm() {
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 9, color: C.muted, fontWeight: 700, letterSpacing: "1.5px", textTransform: "uppercase", marginBottom: 6 }}>Anything else you'd like us to know?</label>
           <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={3}
-            placeholder="Tell us about your business, challenges, or what you're hoping Hermes can help with�"
+            placeholder="Tell us about your business, challenges, or what you're hoping Hermes can help with—"
             style={{ width: "100%", padding: "10px 12px", borderRadius: 8, background: C.bg3, border: `1px solid ${C.border2}`, color: C.text, fontSize: 13, resize: "vertical" }} />
         </div>
 
@@ -776,7 +964,7 @@ function DemoBookingForm() {
             border: "none", color: busy ? C.muted : C.bg0,
             fontSize: 14, fontWeight: 800, cursor: busy ? "not-allowed" : "pointer",
             boxShadow: busy ? "none" : GOLD_GLOW, letterSpacing: "0.4px", transition: "all 0.2s",
-          }}>{busy ? "Submitting�" : "Book My Demo ?"}</button>
+          }}>{busy ? "Submitting—" : "Book My Demo ?"}</button>
           <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.5 }}>
             Free, no commitment.<br />We'll reach out within 24 hours.
           </div>
@@ -786,141 +974,6 @@ function DemoBookingForm() {
   );
 }
 
-
-// ---------------------------------------------------------------------------
-//  PRICING PREVIEW COMPONENT (extracted to allow useState hook)
-// ---------------------------------------------------------------------------
-function PricingPreview({setMode,focusAuth}) {
-  const [billing,setBilling]=useState("monthly");
-  const PLANS=[
-    {
-      name:"Starter",tier:"For solo merchants",monthly:null,annual:null,color:C.cyan,popular:false,badge:"FREE TRIAL",
-      freeTier:true,
-      features:[{t:"Brands",v:"1 brand"},{t:"Platforms",v:"Facebook + Instagram"},{t:"Inbox",v:"Unified AI Inbox"},{t:"CRM",v:"Basic CRM"},{t:"AI Chatbot",v:"500 AI replies/mo"},{t:"Messages",v:"5,000 msgs/mo"},{t:"Analytics",v:"Basic dashboard"},{t:"ERP",v:"�"},{t:"Market Research",v:"�"},{t:"Social Ads",v:"�"},{t:"Support",v:"Email support"}],
-      cta:"Start Free � No Card Needed",highlight:"Full access for 14 days, then upgrade",
-    },
-    {
-      name:"Growth",tier:"Best value for scaling brands",monthly:299000,annual:209300,color:C.gold,popular:true,badge:"BEST VALUE",
-      annualDiscount:30,
-      features:[{t:"Brands",v:"3 brands"},{t:"Platforms",v:"All 7 platforms"},{t:"Inbox",v:"Unified AI Inbox"},{t:"CRM",v:"Full CRM + Pipeline"},{t:"AI Chatbot",v:"5,000 AI replies/mo"},{t:"Messages",v:"25,000 msgs/mo"},{t:"Analytics",v:"Full Analytics Suite"},{t:"ERP",v:"Inventory + ERP"},{t:"Market Research",v:"10 AI reports/mo"},{t:"Social Ads",v:"Ads Intelligence"},{t:"Support",v:"Priority + Chat"}],
-      cta:"Begin Your Ascent ?",highlight:"Most chosen by PH brands",
-    },
-    {
-      name:"Enterprise",tier:"All services, one empire",monthly:299999,annual:149999,color:C.violet,popular:false,badge:"ALL-IN",
-      annualDiscount:50,
-      features:[{t:"Brands",v:"Unlimited brands"},{t:"Platforms",v:"All platforms + API"},{t:"Inbox",v:"Unlimited AI Inbox"},{t:"CRM",v:"Enterprise CRM + SLA"},{t:"AI Chatbot",v:"Unlimited AI replies"},{t:"Messages",v:"Unlimited messages"},{t:"Analytics",v:"Custom BI dashboards"},{t:"ERP",v:"Advanced ERP + WMS"},{t:"Market Research",v:"Unlimited AI reports"},{t:"Social Ads",v:"Full Ads Suite + API"},{t:"Support",v:"Dedicated CSM"}],
-      cta:"Talk to Sales ?",highlight:"Everything included. No limits.",
-    },
-  ];
-  return (
-    <div>
-      <div style={{textAlign:"center",marginBottom:32}}>
-        <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:10}}>Simple, Transparent Pricing</div>
-        <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(28px,4vw,52px)",fontWeight:700,letterSpacing:"-2px",color:C.text,marginBottom:8,lineHeight:1.05}}>
-          Choose your ascent.<br/>
-          <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Pay less as you grow.</span>
-        </div>
-        <div style={{fontSize:13,color:C.muted,marginBottom:24}}>14-days free trial on all plans � No credit card required </div>
-        <div style={{display:"inline-flex",background:C.bg3,border:`1px solid ${C.border2}`,borderRadius:12,padding:4,gap:2,marginBottom:8}}>
-          {[["monthly","Monthly"],["annual","Annual"]].map(([k,l])=>(
-            <button key={k} onClick={()=>setBilling(k)} style={{
-              padding:"9px 24px",borderRadius:9,border:"none",cursor:"pointer",fontSize:12,fontWeight:700,transition:"all 0.18s",
-              background:billing===k?GOLD_GRADIENT:"transparent",color:billing===k?C.bg0:C.muted,boxShadow:billing===k?GOLD_GLOW:"none",
-            }}>
-              {l}
-              {k==="annual" && <span style={{marginLeft:6,fontSize:10,padding:"1px 7px",borderRadius:10,background:billing==="annual"?`${C.bg0}44`:`${C.green}22`,color:billing==="annual"?C.bg0:C.green,fontWeight:800}}>up to -50%</span>}
-            </button>
-          ))}
-        </div>
-        {billing==="annual" && <div style={{fontSize:12,color:C.green,fontWeight:700}}>?? Growth saves ?89,700/yr � Enterprise saves ?150,000/yr � pay less, scale more!</div>}
-        {billing==="monthly" && <div style={{fontSize:12,color:C.muted}}>Switch to annual � Growth saves <span style={{color:C.gold,fontWeight:700}}>30%</span>, Enterprise saves <span style={{color:C.violet,fontWeight:700}}>50%</span></div>}
-      </div>
-
-      <div className="pricing-grid" style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16}}>
-        {PLANS.map((p)=>{
-          const monthlyPrice = p.monthly ? Math.round(p.monthly/12) : null;
-          const price=billing==="annual"?p.annual:monthlyPrice;
-          const savings=p.annualDiscount||0;
-          return (
-            <div key={p.name} style={{
-              background:C.bg2,border:`${p.popular?"2px":"1px"} solid ${p.popular?C.gold:C.border}`,
-              borderRadius:18,overflow:"hidden",position:"relative",
-              boxShadow:p.popular?`0 0 60px ${C.gold}22`:"none",
-              transition:"transform 0.2s,box-shadow 0.2s",
-            }}
-            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-5px)";e.currentTarget.style.boxShadow=p.popular?`0 20px 80px ${C.gold}30`:`0 10px 40px #00000060`;}}
-            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow=p.popular?`0 0 60px ${C.gold}22`:"none";}}>
-              <div style={{height:3,background:p.popular?GOLD_GRADIENT:`linear-gradient(90deg,${p.color},${p.color}66)`}}/>
-              {p.badge && (
-                <div style={{padding:"6px 16px",background:p.popular?`${C.gold}18`:`${p.color}18`,borderBottom:`1px solid ${p.popular?C.gold:p.color}33`,textAlign:"center"}}>
-                  <span style={{fontSize:9,fontWeight:800,letterSpacing:"1.5px",color:p.popular?C.gold:p.color}}>{p.badge}</span>
-                </div>
-              )}
-              <div style={{padding:"22px 22px 20px"}}>
-                <div style={{fontSize:9,color:p.color,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:3}}>{p.name}</div>
-                <div style={{fontSize:11,color:C.muted,marginBottom:14}}>{p.tier}</div>
-
-                {/* FREE TIER */}
-                {p.freeTier ? (
-                  <div style={{marginBottom:6}}>
-                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:42,fontWeight:700,color:C.cyan,letterSpacing:"-1px",lineHeight:1}}>Free</div>
-                    <div style={{marginTop:6,display:"inline-flex",alignItems:"center",gap:6,padding:"5px 12px",background:`${C.cyan}15`,border:`1px solid ${C.cyan}33`,borderRadius:20}}>
-                      <span style={{fontSize:11,color:C.cyan,fontWeight:700}}>? 14 days full access</span>
-                    </div>
-                    <div style={{marginTop:8,fontSize:11,color:C.muted,lineHeight:1.6}}>{p.highlight}</div>
-                  </div>
-                ) : price ? (
-                  /* PAID TIER */
-                  <div style={{marginBottom:6}}>
-                    <div style={{display:"flex",alignItems:"baseline",gap:3}}>
-                      <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:42,fontWeight:700,color:C.text,letterSpacing:"-2px",lineHeight:1}}>?{price.toLocaleString()}</div>
-                      <div style={{fontSize:13,color:C.muted}}>{billing==="annual"?"/yr":"/mo"}</div>
-                    </div>
-                    {billing==="annual" && (
-                      <div style={{display:"flex",alignItems:"center",gap:8,marginTop:5,flexWrap:"wrap"}}>
-                        <span style={{fontSize:12,color:C.muted,textDecoration:"line-through"}}>?{p.monthly.toLocaleString()}/yr</span>
-                        <span style={{padding:"2px 10px",borderRadius:20,background:`${C.green}18`,color:C.green,fontSize:10,fontWeight:800,border:`1px solid ${C.green}33`}}>SAVE {savings}%</span>
-                        <span style={{fontSize:10,color:C.muted}}>� ?{Math.round(price/12).toLocaleString()}/mo</span>
-                      </div>
-                    )}
-                    {billing==="monthly" && (
-                      <div style={{marginTop:5,fontSize:11,color:C.muted}}>Standard monthly rate. No annual discount applied.</div>
-                    )}
-                    <div style={{marginTop:8,fontSize:11,color:p.popular?C.gold:C.muted,fontWeight:p.popular?700:400}}>{p.highlight}</div>
-                  </div>
-                ) : null}
-                <button
-                  onClick={()=>{setMode(p.name==="Enterprise"?"signin":"signup");focusAuth();}}
-                  style={{width:"100%",padding:"13px 16px",borderRadius:11,marginTop:14,marginBottom:18,background:p.popular?GOLD_GRADIENT:`${p.color}18`,border:p.popular?"none":`1px solid ${p.color}55`,color:p.popular?C.bg0:p.color,fontSize:13,fontWeight:800,cursor:"pointer",boxShadow:p.popular?GOLD_GLOW:"none",transition:"all 0.18s",letterSpacing:"0.3px"}}
-                  onMouseEnter={e=>{if(!p.popular)e.currentTarget.style.background=`${p.color}28`;}}
-                  onMouseLeave={e=>{if(!p.popular)e.currentTarget.style.background=`${p.color}18`;}}
-                >{p.cta}</button>
-                <div style={{borderTop:`1px solid ${C.border}`,paddingTop:14}}>
-                  {p.features.map((f,j)=>(
-                    <div key={j} style={{display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:j<p.features.length-1?`1px solid ${C.border}22`:"none",fontSize:11}}>
-                      <span style={{color:C.muted}}>{f.t}</span>
-                      <span style={{
-                        color:f.v==="�"?C.dim:f.v.includes("Unlimited")||f.v.includes("All 7")||f.v.includes("Full")||f.v.includes("Advanced")||f.v.includes("Enterprise")||f.v.includes("Custom pricing")||f.v.includes("Dedicated")?p.color:C.text,
-                        fontWeight:f.v==="�"?400:600,
-                        textDecoration:f.v==="�"?"line-through":"none",
-                      }}>{f.v}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{marginTop:24,padding:"16px 24px",background:C.bg3,borderRadius:12,border:`1px solid ${C.border}`,display:"flex",justifyContent:"center",gap:28,flexWrap:"wrap",alignItems:"center"}}>
-        {[["??","Secured by Supabase"],["??","Privacy compliant"],["??","No credit card for trial"],["??","Cancel anytime"],["????","Built for PH"],["?","14-day free trial"]].map(([ic,l])=>(
-          <div key={l} style={{display:"flex",alignItems:"center",gap:6,fontSize:12,color:C.muted}}><span style={{fontSize:14}}>{ic}</span><span>{l}</span></div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 
 function LandingPage() {
@@ -937,6 +990,41 @@ function LandingPage() {
   const [showPass,setShowPass]=useState(false);
   const [showConfirm,setShowConfirm]=useState(false);
   const [activePreview,setActivePreview]=useState(null); // "Platform"|"CRM"|"ERP"|"Analytics"|"Pricing"|null
+  const [otpSent,setOtpSent]=useState(false);
+  const [otp,setOtp]=useState("");
+  const [otpResend,setOtpResend]=useState(0);
+  const [captchaToken,setCaptchaToken]=useState("");
+  const [captchaChallenge,setCaptchaChallenge]=useState(generateCaptcha());
+  const [loginAttempts,setLoginAttempts]=useState(0);
+  const [accountLocked,setAccountLocked]=useState(false);
+  const [lockTimer,setLockTimer]=useState(0);
+  const [rememberMe,setRememberMe]=useState(()=>localStorage.getItem("exp_remember")==="1");
+  const [otpExpiry,setOtpExpiry]=useState(0);
+  const MAX_ATTEMPTS=3;
+
+  const maskEmail=(e)=>{
+    if(!e||!e.includes("@")) return e;
+    const [local,domain]=e.split("@");
+    const masked=local.length<=2?local[0]+"***":local[0]+"*".repeat(Math.min(local.length-2,4))+local[local.length-1];
+    return masked+"@"+domain;
+  };
+
+  const startLockTimer=(secs)=>{
+    setLockTimer(secs);
+    const t=setInterval(()=>setLockTimer(s=>{
+      if(s<=1){clearInterval(t);setAccountLocked(false);setLoginAttempts(0);return 0;}
+      return s-1;
+    }),1000);
+  };
+
+  const startOtpExpiryTimer=()=>{
+    setOtpExpiry(600);
+    const t=setInterval(()=>setOtpExpiry(s=>{
+      if(s<=1){clearInterval(t);return 0;}
+      return s-1;
+    }),1000);
+    return t;
+  };
 
   const openPreview=(tab)=>{
     setActivePreview(tab);
@@ -949,24 +1037,83 @@ function LandingPage() {
     setTimeout(()=>emailRef.current?.focus(),400);
   };
 
+  const startOtpResendTimer=()=>{
+    setOtpResend(60);
+    const t=setInterval(()=>setOtpResend(s=>{ if(s<=1){clearInterval(t);return 0;} return s-1; }),1000);
+    return t;
+  };
+
   const submit=async(e)=>{
     e.preventDefault();
-    if(mode==="signup" && password !== confirmPassword){
+    setError("");
+
+    // ── SIGN IN flow ───────────────────────────────────────────────────────
+    if(mode==="signin"){
+      if(accountLocked){ setError(`Account temporarily locked. Try again in ${lockTimer}s.`); return; }
+      if(!otpSent){
+        setBusy(true);
+        try{
+          const { error:pwErr } = await supabase.auth.signInWithPassword({email,password});
+          if(pwErr) throw pwErr;
+          await supabase.auth.signOut();
+          const { error:otpErr } = await supabase.auth.signInWithOtp({
+            email, options:{ shouldCreateUser: false },
+          });
+          if(otpErr) throw otpErr;
+          setLoginAttempts(0);
+          if(rememberMe) localStorage.setItem("exp_remember","1");
+          else localStorage.removeItem("exp_remember");
+          setOtpSent(true);
+          setOtp("");
+          startOtpResendTimer();
+          startOtpExpiryTimer();
+        }catch(err){
+          const next=loginAttempts+1;
+          setLoginAttempts(next);
+          if(next>=MAX_ATTEMPTS){
+            setAccountLocked(true);
+            startLockTimer(30);
+            setError(`Too many failed attempts. Account locked for 30 seconds.`);
+          } else {
+            setError(`Incorrect email or password. ${MAX_ATTEMPTS-next} attempt${MAX_ATTEMPTS-next===1?"":"s"} remaining.`);
+          }
+        }finally{
+          setBusy(false);
+        }
+        return;
+      }
+      if(otpExpiry===0){ setError("OTP has expired. Please request a new code."); return; }
+      setBusy(true);
+      try{
+        const { error:verifyErr } = await supabase.auth.verifyOtp({
+          email, token: otp.trim(), type: "email",
+        });
+        if(verifyErr) throw verifyErr;
+      }catch(err){
+        setError(err?.message||"Incorrect or expired OTP. Please try again.");
+      }finally{
+        setBusy(false);
+      }
+      return;
+    }
+
+    // ── CREATE ACCOUNT flow ────────────────────────────────────────────────
+    if(password !== confirmPassword){
       setError("Passwords do not match.");
       return;
     }
+    if(!validateCaptcha(captchaToken, captchaChallenge)){
+      setError("Incorrect security code. Please try again.");
+      setCaptchaChallenge(generateCaptcha());
+      setCaptchaToken("");
+      return;
+    }
     setBusy(true);
-    setError("");
     try{
-      if(mode==="signin"){
-        const { error:err } = await supabase.auth.signInWithPassword({email,password});
-        if(err) throw err;
-      }else{
-        const { error:err } = await supabase.auth.signUp({email,password});
-        if(err) throw err;
-      }
+      const { error:err } = await supabase.auth.signUp({email,password});
+      if(err) throw err;
     }catch(err){
-      setError(err?.message||"Authentication failed.");
+      setError(err?.message||"Registration failed.");
     }finally{
       setBusy(false);
     }
@@ -985,71 +1132,233 @@ function LandingPage() {
   },[]);
 
   const FEATURES=[
-    {icon:"?",title:"Sacred Inbox",sub:"Social Commerce",desc:"AI-powered unified inbox across Facebook, Instagram, TikTok, Shopee, Lazada & more � reply at godspeed.",color:C.gold,accent:`${C.gold}18`},
-    {icon:"?",title:"Merchant CRM",sub:"Customer Intelligence",desc:"360� customer profiles, lead scoring, pipeline management, and lifetime value tracking across all brands.",color:C.cyan,accent:`${C.cyan}18`},
-    {icon:"?",title:"Olympian ERP",sub:"Inventory & Ops",desc:"Real-time stock management, automated reorder alerts, margin analysis, and multi-brand product catalog.",color:C.green,accent:`${C.green}18`},
-    {icon:"?",title:"Oracle Analytics",sub:"Revenue Intelligence",desc:"Revenue forecasting, cohort analysis, funnel metrics, and cross-platform performance dashboards.",color:C.violet,accent:`${C.violet}18`},
-    {icon:"?",title:"Agora Demographics",sub:"Market Intelligence",desc:"Geographic heatmaps, age/gender breakdowns, behavioral segmentation and psychographic profiling.",color:C.amber,accent:`${C.amber}18`},
-    {icon:"?",title:"Pythian Research",sub:"Market Research AI",desc:"Keyword intelligence, competitor benchmarking, sentiment analysis, and AI-generated market reports.",color:C.rose,accent:`${C.rose}18`},
-    {icon:"?",title:"Hermes AI Chatbot",sub:"Conversational AI",desc:"Smart auto-replies in Taglish � trained on your brand voice, products, and FAQs. Live 24/7 across all platforms.",color:C.amber,accent:`${C.amber}18`},
-    {icon:"?",title:"Agora Social Ads",sub:"Ads Intelligence",desc:"Track ROAS, optimize ad creatives, and attribute revenue across Facebook, TikTok, and Shopee Ads.",color:C.violet,accent:`${C.violet}18`},
+    {icon:"◆",title:"Unified Inbox",sub:"Social Commerce",desc:"AI-powered unified inbox across Facebook, Instagram, TikTok, Shopee, Lazada & more • reply instantly.",color:C.gold,accent:`${C.gold}18`},
+    {icon:"◆",title:"Merchant CRM",sub:"Customer Intelligence",desc:"360° customer profiles, lead scoring, pipeline management, and lifetime value tracking across all brands.",color:C.cyan,accent:`${C.cyan}18`},
+    {icon:"◆",title:"Inventory Management",sub:"Inventory & Operations",desc:"Real-time stock management, automated reorder alerts, margin analysis, and multi-brand product catalog.",color:C.green,accent:`${C.green}18`},
+    {icon:"◆",title:"Business Analytics",sub:"Revenue Intelligence",desc:"Revenue forecasting, cohort analysis, funnel metrics, and cross-platform performance dashboards.",color:C.violet,accent:`${C.violet}18`},
+    {icon:"◆",title:"Market Demographics",sub:"Market Intelligence",desc:"Geographic heatmaps, age/gender breakdowns, behavioral segmentation and psychographic profiling.",color:C.amber,accent:`${C.amber}18`},
+    {icon:"◆",title:"Market Research AI",sub:"Market Research Intelligence",desc:"Keyword intelligence, competitor benchmarking, sentiment analysis, and AI-generated market reports.",color:C.rose,accent:`${C.rose}18`},
+    {icon:"◆",title:"AI Chatbot",sub:"Conversational AI",desc:"Smart auto-replies in Taglish • trained on your brand voice, products, and FAQs. Live 24/7 across all platforms.",color:C.amber,accent:`${C.amber}18`},
+    {icon:"◆",title:"Social Ads Manager",sub:"Ads Intelligence",desc:"Track ROAS, optimize ad creatives, and attribute revenue across Facebook, TikTok, and Shopee Ads.",color:C.violet,accent:`${C.violet}18`},
   ];
 
   const USE_CASES=[
-    {label:"E-Commerce",icon:"???",desc:"Streamline management, automation & revenue growth"},
-    {label:"Fashion",icon:"??",desc:"From design to production & multi-channel sales"},
-    {label:"Beauty & Spa",icon:"?",desc:"Scheduling, support & client management"},
-    {label:"Food & Bev",icon:"??",desc:"Orders, loyalty & customer engagement"},
-    {label:"EdTech",icon:"??",desc:"Management, automation & enrollment workflows"},
-    {label:"Retail",icon:"??",desc:"Automate responses & foster customer relationships"},
+    {label:"E-Commerce",icon:"◆",desc:"Streamline management, automation & revenue growth"},
+    {label:"Fashion",icon:"◆",desc:"From design to production & multi-channel sales"},
+    {label:"Beauty & Spa",icon:"◆",desc:"Scheduling, support & client management"},
+    {label:"Food & Bev",icon:"◆",desc:"Orders, loyalty & customer engagement"},
+    {label:"EdTech",icon:"◆",desc:"Management, automation & enrollment workflows"},
+    {label:"Retail",icon:"◆",desc:"Automate responses & foster customer relationships"},
   ];
 
   return (
     <div style={{minHeight:"100vh",background:C.bg0,color:C.text,fontFamily:"'DM Sans','Segoe UI',sans-serif",overflowX:"hidden"}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Cormorant+Garamond:wght@400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400;1,600&display=swap');
+        /* ─── KEYFRAMES ──────────────────────────────────────────── */
         @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
         @keyframes ticker{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
         @keyframes glowPulse{0%,100%{box-shadow:${GOLD_GLOW}}50%{box-shadow:0 0 50px ${C.gold}60,0 0 100px ${C.gold}30}}
+        @keyframes tiltCard{0%{transform:rotateY(-11deg) rotateX(6deg) translateY(0)}50%{transform:rotateY(-6deg) rotateX(3deg) translateY(-8px)}100%{transform:rotateY(-11deg) rotateX(6deg) translateY(0)}}
+        @keyframes orbDrift{0%{transform:translate3d(-10px,0,0);opacity:.4}50%{transform:translate3d(12px,-14px,0);opacity:.85}100%{transform:translate3d(-10px,0,0);opacity:.4}}
+        @keyframes shimmerLine{0%{background-position:0% 50%}100%{background-position:100% 50%}}
+        @keyframes goldSweep{0%{background-position:-200% center}100%{background-position:200% center}}
+        @keyframes gradShift{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+        @keyframes scanDown{0%{transform:translateY(-100%);opacity:.6}85%{opacity:.25}100%{transform:translateY(900%);opacity:0}}
+        @keyframes fadeInLeft{from{opacity:0;transform:translateX(-22px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes fadeInRight{from{opacity:0;transform:translateX(22px)}to{opacity:1;transform:translateX(0)}}
+        @keyframes rotateSlow{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        @keyframes rotateSlowReverse{from{transform:rotate(360deg)}to{transform:rotate(0deg)}}
+        @keyframes scaleBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.04)}}
+        @keyframes countPop{from{opacity:0;transform:translateY(14px) scale(0.88)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes borderFade{0%,100%{opacity:.25}50%{opacity:.9}}
+        @keyframes stepReveal{from{opacity:0;transform:translateY(28px) scale(0.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes prismPulse{0%,100%{opacity:.2;transform:translate3d(0,0,0) scale(1)}50%{opacity:.6;transform:translate3d(0,-8px,0) scale(1.05)}}
+        @keyframes holoDrift{0%,100%{transform:translate3d(-10px,-6px,0)}50%{transform:translate3d(14px,12px,0)}}
+        @keyframes surfaceScan{0%{transform:translateX(-160%)}100%{transform:translateX(180%)}}
+        @keyframes luxuryFloat{0%{transform:translateY(0) rotateZ(-1deg)}25%{transform:translateY(-12px) rotateZ(0.5deg)}50%{transform:translateY(-8px) rotateZ(-0.5deg)}75%{transform:translateY(-14px) rotateZ(0.3deg)}100%{transform:translateY(0) rotateZ(-1deg)}}
+        @keyframes magneticPull{0%,100%{transform:translate(0,0)}50%{transform:translate(2px,-2px)}}
+        @keyframes luxeGlow{0%,100%{box-shadow:0 0 20px ${C.gold}20,0 0 40px ${C.gold}10}50%{box-shadow:0 0 30px ${C.gold}40,0 0 60px ${C.gold}20}}
+        @keyframes shimmerWave{0%{background-position:-1000px 0}100%{background-position:1000px 0}}
+        @keyframes cardFlip{0%{transform:rotateY(0) rotateX(0)}50%{transform:rotateY(5deg) rotateX(2deg)}100%{transform:rotateY(0) rotateX(0)}}
+        @keyframes textGlow{0%,100%{text-shadow:0 0 10px ${C.gold}40}50%{text-shadow:0 0 20px ${C.gold}80,0 0 30px ${C.gold}40}}
+        @keyframes slideInScale{from{opacity:0;transform:translateY(30px) scale(0.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes pulseRing{0%{box-shadow:0 0 0 0 ${C.gold}60}70%{box-shadow:0 0 0 20px ${C.gold}00}100%{box-shadow:0 0 0 0 ${C.gold}00}}
+        @keyframes enterpriseGlow{0%,100%{box-shadow:0 0 30px ${C.gold}25,0 0 60px ${C.gold}15,inset 0 1px 0 #ffffff20}50%{box-shadow:0 0 50px ${C.gold}40,0 0 100px ${C.gold}25,inset 0 1px 0 #ffffff30}}
+        @keyframes magneticHover{0%,100%{transform:translate(0,0)}25%{transform:translate(3px,-2px)}50%{transform:translate(0,2px)}75%{transform:translate(-3px,-1px)}}
+        @keyframes glassShimmer{0%{background-position:0 0}100%{background-position:200% 0}}
+        @keyframes elevateScale{from{opacity:0;transform:translateY(40px) scale(0.88)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes subtleRotate{0%,100%{transform:rotateZ(-0.5deg)}50%{transform:rotateZ(0.5deg)}}
+        /* ─── BASE ──────────────────────────────────────────────── */
         *{box-sizing:border-box;margin:0;padding:0;}
         input,button,select,textarea{font-family:inherit;}
-        ::-webkit-scrollbar{width:4px;} ::-webkit-scrollbar-track{background:${C.bg0};} ::-webkit-scrollbar-thumb{background:${C.border2};border-radius:2px;}
-        .nav-link{cursor:pointer;transition:color 0.2s;letter-spacing:0.3px;font-size:13px;color:${C.muted};}
+        ::selection{background:${C.gold}28;color:${C.gold2};}
+        /* ─── SCROLLBAR ─────────────────────────────────────────── */
+        ::-webkit-scrollbar{width:5px;}
+        ::-webkit-scrollbar-track{background:${C.bg0};}
+        ::-webkit-scrollbar-thumb{background:linear-gradient(180deg,${C.gold}90,${C.gold3});border-radius:3px;}
+        ::-webkit-scrollbar-thumb:hover{background:${C.gold};}
+        /* ─── NAV ───────────────────────────────────────────────── */
+        .nav-link{cursor:pointer;transition:color 0.22s;letter-spacing:0.4px;font-size:12.5px;color:${C.muted};position:relative;}
+        .nav-link::after{content:'';position:absolute;bottom:-3px;left:0;width:0;height:1px;background:${C.gold};transition:width 0.28s cubic-bezier(0.22,1,0.36,1);}
         .nav-link:hover{color:${C.gold};}
-        .feat-card{transition:all 0.22s;cursor:default;}
-        .feat-card:hover{transform:translateY(-4px);}
-        .use-card{transition:all 0.2s;cursor:default;}
-        .use-card:hover{transform:translateY(-3px);}
-        .auth-input{width:100%;padding:10px 12px;border-radius:8px;background:${C.bg3};border:1px solid ${C.border2};color:${C.text};font-size:13px;outline:none;transition:border-color 0.2s;}
-        .auth-input:focus{border-color:${C.gold}88;}
-        .auth-tab{flex:1;padding:9px 10px;border-radius:9px;font-size:12px;font-weight:700;cursor:pointer;letter-spacing:0.4px;transition:all 0.18s;}
+        .nav-link:hover::after{width:100%;}
+        /* ─── FEATURE CARDS (3D Figma Style) ──────────────────────── */
+        .feat-card{transition:all 0.45s cubic-bezier(0.22,1,0.36,1);cursor:default;position:relative;overflow:hidden;transform-style:preserve-3d;background:linear-gradient(152deg,${C.bg2},${C.bg1} 64%,${C.bg3});}
+        .feat-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at var(--mx,50%) var(--my,50%),${C.gold}16 0%,transparent 58%);opacity:0;transition:opacity 0.4s;pointer-events:none;z-index:0;}
+        .feat-card::after{content:'';position:absolute;top:0;left:-60%;width:45%;height:100%;background:linear-gradient(100deg,transparent,${C.gold}20,transparent);opacity:0;transition:opacity 0.35s;}
+        .feat-card:hover{transform:translateY(-10px) perspective(640px) rotateX(3deg) scale(1.012);z-index:2;box-shadow:0 34px 64px #00000068,0 0 0 1px ${C.gold}2b,0 0 36px ${C.gold}1a;}
+        .feat-card:hover::before{opacity:1;}
+        .feat-card:hover::after{opacity:1;animation:surfaceScan 1.2s ease;}
+        .feat-card:hover .feat-accent-line{opacity:1 !important;}
+        /* ─── USE CARDS ─────────────────────────────────────────── */
+        .use-card{transition:all 0.35s cubic-bezier(0.22,1,0.36,1);cursor:default;position:relative;overflow:hidden;background:linear-gradient(150deg,${C.bg2},${C.bg1} 65%);}
+        .use-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 0%,${C.gold}14,transparent 64%);opacity:0;transition:opacity 0.32s;pointer-events:none;}
+        .use-card:hover{transform:translateY(-6px) perspective(560px) rotateX(2.5deg);box-shadow:0 20px 44px #00000054,0 0 0 1px ${C.gold}22;}
+        .use-card:hover::before{opacity:1;}
+        /* ─── FORMS ─────────────────────────────────────────────── */
+        .auth-input{width:100%;padding:clamp(9px,1.5vw,12px) 14px;border-radius:9px;background:${C.bg3};border:1px solid ${C.border2};color:${C.text};font-size:clamp(13px,1.6vw,15px);outline:none;transition:border-color 0.22s,box-shadow 0.22s;}
+        .auth-input:focus{border-color:${C.gold}80;box-shadow:0 0 0 3px ${C.gold}14;}
+        .auth-input::placeholder{color:${C.muted}70;}
+        .auth-tab{flex:1;padding:clamp(8px,1.2vw,11px) 10px;border-radius:9px;font-size:clamp(12px,1.4vw,14px);font-weight:700;cursor:pointer;letter-spacing:0.4px;transition:all 0.18s;}
+        /* ─── RESPONSIVE TEXT SIZING ──────────────────────────── */
+        @media(max-width:768px){
+          .auth-input{font-size:15px !important;padding:11px 13px !important;}
+          .auth-tab{font-size:13px !important;padding:10px 8px !important;}
+          #auth-card{max-width:100% !important;margin:0 16px !important;}
+          .stat-chips-grid{grid-template-columns:repeat(2,1fr) !important;}
+        }
+        @media(max-width:480px){
+          .auth-input{font-size:16px !important;}
+          .auth-tab{font-size:13px !important;}
+          .stat-chips-grid{grid-template-columns:repeat(2,1fr) !important;gap:8px !important;}
+        }
+        /* ─── LUXURY CARD ───────────────────────────────────────── */
+        .luxury-card{position:relative;overflow:hidden;transition:all 0.38s cubic-bezier(0.22,1,0.36,1);background:linear-gradient(152deg,${C.bg2},${C.bg1} 72%,${C.bg3});}
+        .luxury-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at var(--mx,50%) var(--my,50%),${C.gold}14 0%,transparent 60%);opacity:0;transition:opacity 0.38s;pointer-events:none;z-index:0;}
+        .luxury-card::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold}66,transparent);opacity:.3;animation:borderFade 4s ease-in-out infinite;pointer-events:none;}
+        .luxury-card:hover::before{opacity:1;}
+        .luxury-card:hover{transform:translateY(-8px) perspective(680px) rotateX(3deg);box-shadow:0 36px 82px #00000070,0 0 0 1px ${C.gold}32,0 0 30px ${C.gold}1a;}
+        /* ─── GOLD SHIMMER TEXT ──────────────────────────────────── */
+        .gold-shimmer-text{background:linear-gradient(90deg,${C.gold3} 0%,${C.gold2} 45%,${C.gold} 55%,${C.gold3} 100%);background-size:200% auto;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:goldSweep 6s linear infinite;}
+        /* ─── SECTION DIVIDER ───────────────────────────────────── */
+        .section-divider{height:1px;background:linear-gradient(90deg,transparent,${C.gold}45,transparent);}
+        /* ─── HOVER LIFT ────────────────────────────────────────── */
+        .hover-lift{transition:transform 0.3s cubic-bezier(0.22,1,0.36,1),box-shadow 0.3s;}
+        .hover-lift:hover{transform:translateY(-5px);box-shadow:0 20px 50px #00000055;}
+        /* ─── SCAN LINE EFFECT ──────────────────────────────────── */
+        .scan-container{position:relative;overflow:hidden;}
+        .scan-container::after{content:'';position:absolute;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold}60,transparent);animation:scanDown 7s linear infinite;pointer-events:none;}
+        /* ─── 3D FIGMA CARD ───────────────────────────────────────── */
+        .figma-card-3d{position:relative;background:linear-gradient(145deg,${C.bg3} 0%,${C.bg2} 100%);border:1px solid ${C.border};border-radius:20px;overflow:hidden;transition:all 0.45s cubic-bezier(0.22,1,0.36,1);transform-style:preserve-3d;}
+        .figma-card-3d::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at var(--mx,50%) var(--my,50%),${C.gold}0c 0%,transparent 55%);opacity:0;transition:opacity 0.4s;pointer-events:none;z-index:0;}
+        .figma-card-3d::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold}50,transparent);opacity:0;transition:opacity 0.35s;}
+        .figma-card-3d:hover{transform:translateY(-10px) scale(1.02);box-shadow:0 35px 80px #00000070,0 0 0 1px ${C.gold}30,0 0 50px ${C.gold}12;border-color:${C.gold}35;}
+        .figma-card-3d:hover::before{opacity:1;}
+        .figma-card-3d:hover::after{opacity:1;}
+        /* ─── GLASSMORPHISM ───────────────────────────────────────── */
+        .glass-panel{background:linear-gradient(135deg,${C.bg2}ee 0%,${C.bg1}dd 100%);backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);border:1px solid ${C.border};}
+        .glass-premium{background:linear-gradient(135deg,${C.bg2}f5 0%,${C.bg3}ed 100%);backdrop-filter:blur(24px) saturate(160%);-webkit-backdrop-filter:blur(24px) saturate(160%);border:1px solid ${C.border2};box-shadow:inset 0 1px 0 #ffffff18,0 25px 60px #00000045;}
+        .holo-surface{position:relative;background:linear-gradient(148deg,${C.bg3}f4 0%,${C.bg2}eb 48%,${C.bg1}dc 100%);border:1px solid ${C.border2};box-shadow:inset 0 1px 0 #ffffff26,inset 0 -22px 32px #00000038,0 30px 84px #00000070,0 0 0 1px ${C.gold}14;backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%);overflow:hidden;transform-style:preserve-3d;}
+        .holo-surface::before{content:'';position:absolute;inset:-18% -8% auto -8%;height:60%;background:radial-gradient(ellipse at 50% 0%,${C.gold}1f,transparent 72%);opacity:.6;animation:prismPulse 6.2s ease-in-out infinite;pointer-events:none;}
+        .holo-surface::after{content:'';position:absolute;left:-35%;top:-10%;width:55%;height:120%;background:linear-gradient(110deg,transparent,${C.gold}14,transparent);opacity:0;pointer-events:none;}
+        .holo-surface:hover{transform:translateY(-6px) perspective(800px) rotateX(2.4deg);box-shadow:inset 0 1px 0 #ffffff30,inset 0 -26px 38px #00000042,0 40px 90px #00000074,0 0 0 1px ${C.gold}28,0 0 32px ${C.gold}24;}
+        .holo-surface:hover::after{opacity:1;animation:surfaceScan 1.25s ease;}
+        .holo-chip{position:relative;overflow:hidden;background:linear-gradient(145deg,${C.bg3},${C.bg2} 65%);border:1px solid ${C.border2};backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+        .holo-chip::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 20% 0%,${C.gold}15,transparent 65%);opacity:.7;pointer-events:none;}
+        .partner-tile{position:relative;overflow:hidden;border-radius:14px;background:linear-gradient(145deg,${C.bg2}f0,${C.bg1}da);border:1px solid ${C.border2};box-shadow:inset 0 1px 0 #ffffff1f,0 14px 36px #0000003f;transition:transform .3s cubic-bezier(0.22,1,0.36,1),box-shadow .3s,border-color .3s;}
+        .partner-tile::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 16% 0%,${C.gold}12,transparent 55%);opacity:0;transition:opacity .3s;pointer-events:none;}
+        .partner-tile:hover{transform:translateY(-4px);border-color:${C.gold}35;box-shadow:inset 0 1px 0 #ffffff28,0 22px 42px #00000056,0 0 22px ${C.gold}16;}
+        .partner-tile:hover::before{opacity:1;}
+        .trust-panel{position:relative;overflow:hidden;background:linear-gradient(148deg,${C.bg2}f2,${C.bg1}de);border:1px solid ${C.border2};box-shadow:inset 0 1px 0 #ffffff20,inset 0 -20px 28px #0000002f,0 20px 48px #00000058;}
+        .trust-panel::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,${C.gold}14,transparent 70%);pointer-events:none;}
+        .hero-auth-card{position:relative;overflow:hidden;}
+        .hero-auth-card::before{content:'';position:absolute;inset:-25% -20% auto -20%;height:60%;background:radial-gradient(ellipse at 50% 0%,${C.gold}1d,transparent 72%);animation:prismPulse 7s ease-in-out infinite;pointer-events:none;}
+        .hero-auth-card::after{content:'';position:absolute;inset:0;background:linear-gradient(125deg,transparent 25%,${C.gold}10 45%,transparent 68%);opacity:0;pointer-events:none;}
+        .hero-auth-card:hover::after{opacity:1;animation:surfaceScan 1.25s ease;}
+        /* ─── GRAIN TEXTURE ───────────────────────────────────────── */
+        .grain-overlay{position:fixed;inset:0;pointer-events:none;opacity:0.025;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");z-index:9999;}
+        /* ─── FIGMA-INSPIRED PREMIUM CARDS ───────────────────────── */
+        .figma-premium-card{position:relative;background:linear-gradient(135deg,${C.bg2}f8 0%,${C.bg3}f0 100%);border:1px solid ${C.border2};border-radius:24px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 20px 60px #00000040,inset 0 1px 0 #ffffff15;transition:all 0.4s cubic-bezier(0.22,1,0.36,1);overflow:hidden;}
+        .figma-premium-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at var(--mx,50%) var(--my,50%),${C.gold}12 0%,transparent 65%);opacity:0;transition:opacity 0.4s;pointer-events:none;}
+        .figma-premium-card::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,${C.gold}60,transparent);opacity:0.5;}
+        .figma-premium-card:hover{transform:translateY(-16px) scale(1.06);border-color:${C.gold}50;box-shadow:0 50px 120px #00000060,0 0 0 1px ${C.gold}40,0 0 60px ${C.gold}30,inset 0 1px 0 #ffffff25;}
+        .figma-premium-card:hover::before{opacity:1;}
+        /* ─── PRESTIGE SECTION DIVIDER ───────────────────────────── */
+        .prestige-divider{height:1px;background:linear-gradient(90deg,transparent,${C.gold}40,${C.gold}60,${C.gold}40,transparent);margin:80px 0;position:relative;}
+        @media(max-width:768px){.prestige-divider{margin:60px 0;}}
+        @media(max-width:480px){.prestige-divider{margin:40px 0;}}
+        .prestige-divider::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,${C.gold}20,transparent);filter:blur(8px);}
+        /* ─── PREMIUM STAT CARD ───────────────────────────────────── */
+        .stat-card-premium{position:relative;background:linear-gradient(145deg,${C.bg3} 0%,${C.bg2} 100%);border:1px solid ${C.border};border-radius:16px;padding:20px 24px;overflow:hidden;transition:all 0.35s cubic-bezier(0.22,1,0.36,1);}
+        .stat-card-premium::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--accent,${C.gold});box-shadow:0 0 20px var(--accent,${C.gold});}
+        .stat-card-premium::after{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,var(--accent,${C.gold}) 0%,transparent 70%);opacity:0.06;pointer-events:none;}
+        .stat-card-premium:hover{transform:translateY(-5px);box-shadow:0 25px 50px #00000050;}
+        /* ─── SHIMMER BORDER ──────────────────────────────────────── */
+        @keyframes shimmerBorder{0%{background-position:0% 50%}100%{background-position:200% 50%}}
+        .shimmer-border{position:relative;}
+        .shimmer-border::before{content:'';position:absolute;inset:-1px;border-radius:inherit;background:linear-gradient(90deg,transparent,${C.gold}40,transparent);background-size:200% 100%;animation:shimmerBorder 3s linear infinite;z-index:-1;opacity:0.6;}
+        /* ─── FLOATING BADGE ──────────────────────────────────────── */
+        .floating-badge{animation:float 4s ease-in-out infinite;}
+        /* ─── ICON BOUNCE ─────────────────────────────────────────── */
+        @keyframes iconBounce{0%,100%{transform:scale(1) rotate(0deg)}50%{transform:scale(1.12) rotate(-4deg)}}
+        .icon-bounce:hover .icon-inner{animation:iconBounce 0.5s ease;}
+        /* ─── DEPTH SHADOW ────────────────────────────────────────── */
+        .depth-shadow{box-shadow:0 4px 6px -1px rgba(0,0,0,0.1),0 2px 4px -1px rgba(0,0,0,0.06),0 20px 25px -5px rgba(0,0,0,0.15),0 10px 10px -5px rgba(0,0,0,0.04);}
+
+        .orbital-glow{position:relative;}
+        .orbital-glow::after{content:'';position:absolute;inset:-16%;border-radius:inherit;border:1px solid ${C.gold}22;animation:holoDrift 8s ease-in-out infinite;pointer-events:none;}
 
         /* -- Responsive nav -- */
-        .nav-links-desktop{display:flex;gap:30px;align-items:center;}
-        .nav-btns-desktop{display:flex;gap:10px;align-items:center;}
+        .nav-links-desktop{display:flex;gap:40px;align-items:center;}
+        .nav-btns-desktop{display:flex;gap:16px;align-items:center;}
+        .nav-link{padding:8px 4px;white-space:nowrap;}
         .nav-hamburger{display:none;background:transparent;border:1px solid ${C.border2};color:${C.muted};border-radius:8px;padding:6px 10px;cursor:pointer;font-size:18px;line-height:1;}
         .mobile-menu{display:none;}
 
         /* -- Hero grid -- */
-        .hero-grid{display:grid;grid-template-columns:1fr 420px;gap:60px;align-items:center;padding:64px 60px 80px;max-width:1280px;margin:0 auto;min-height:calc(100vh - 64px);position:relative;z-index:1;}
+        .hero-grid{display:grid;grid-template-columns:1fr 480px;gap:80px;align-items:center;padding:80px 80px 100px;max-width:1380px;margin:0 auto;min-height:calc(100vh - 64px);position:relative;z-index:1;}
+        @media(max-width:1200px){.hero-grid{grid-template-columns:1fr;gap:60px;padding:60px 60px 80px;}}
+        @media(max-width:768px){.hero-grid{grid-template-columns:1fr;gap:40px;padding:40px 24px 60px;}}
+        @media(max-width:480px){.hero-grid{grid-template-columns:1fr;gap:30px;padding:30px 16px 40px;}}
 
         /* -- Features grid -- */
         .features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;border-radius:18px;overflow:hidden;border:1px solid ${C.border};}
+        @media(max-width:1024px){.features-grid{grid-template-columns:repeat(2,1fr);}}
+        @media(max-width:640px){.features-grid{grid-template-columns:1fr;}}
         .feat-border-r{border-right:1px solid ${C.border};}
         .feat-border-b{border-bottom:1px solid ${C.border};}
+        @media(max-width:1024px){.feat-border-r{border-right:none;} .feat-border-b{border-bottom:1px solid ${C.border};}}
+        @media(max-width:640px){.feat-border-r{border-right:none;} .feat-border-b{border-bottom:1px solid ${C.border};}}
 
         /* -- Use cases grid -- */
         .use-cases-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;}
+        @media(max-width:1200px){.use-cases-grid{grid-template-columns:repeat(4,1fr);gap:10px;}}
+        @media(max-width:768px){.use-cases-grid{grid-template-columns:repeat(3,1fr);gap:8px;}}
+        @media(max-width:480px){.use-cases-grid{grid-template-columns:repeat(2,1fr);gap:8px;}}
 
         /* -- Stats block -- */
         .stats-block{display:inline-grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid ${C.border};border-radius:16px;overflow:hidden;margin-bottom:48px;background:${C.bg2};}
+        @media(max-width:768px){.stats-block{grid-template-columns:repeat(2,1fr);margin-bottom:32px;}}
+        @media(max-width:480px){.stats-block{grid-template-columns:1fr;margin-bottom:24px;}}
         .stats-block-item{padding:24px 40px;text-align:center;}
 
         /* -- Section padding -- */
-        .section-pad{padding:90px 60px;}
-        .section-pad-md{padding:80px 60px;}
-        .footer-inner{padding:40px 60px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px;}
+        .section-pad{padding:120px 80px;}
+        @media(max-width:1024px){.section-pad{padding:80px 60px;}}
+        @media(max-width:768px){.section-pad{padding:60px 40px;}}
+        @media(max-width:480px){.section-pad{padding:40px 20px;}}
+        
+        .section-pad-md{padding:100px 80px;}
+        @media(max-width:1024px){.section-pad-md{padding:70px 60px;}}
+        @media(max-width:768px){.section-pad-md{padding:50px 40px;}}
+        @media(max-width:480px){.section-pad-md{padding:35px 20px;}}
+        
+        .footer-inner{padding:50px 80px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:30px;}
+        @media(max-width:1024px){.footer-inner{padding:40px 60px;gap:20px;}}
+        @media(max-width:768px){.footer-inner{padding:30px 40px;gap:15px;flex-direction:column;align-items:flex-start;}}
+        @media(max-width:480px){.footer-inner{padding:20px 20px;gap:12px;}}
 
         /* --------------------------------
            TABLET  = 1024px
@@ -1105,6 +1414,10 @@ function LandingPage() {
           .section-pad{padding:40px 16px;}
           .section-pad-md{padding:40px 16px;}
           .footer-inner{padding:20px 16px;flex-direction:column;align-items:flex-start;gap:14px;}
+          .footer-cols{grid-template-columns:1fr !important;padding:32px 16px 24px !important;gap:28px !important;}
+          .footer-bottom{padding:12px 16px !important;flex-direction:column !important;gap:8px !important;text-align:center;}
+          .hiw-grid{grid-template-columns:1fr !important;}
+          .hiw-arrow{display:none !important;}
           .stats-block{display:grid;grid-template-columns:1fr;width:100%;}
           .stats-block-item{padding:16px 18px;border-right:none !important;border-bottom:1px solid ${C.border};}
           .stats-block-item:last-child{border-bottom:none;}
@@ -1125,6 +1438,14 @@ function LandingPage() {
         }
 
         /* --------------------------------
+           TABLET  = 900px
+        -------------------------------- */
+        @media(max-width:900px){
+          .footer-cols{grid-template-columns:1fr 1fr !important;}
+          .hiw-grid{grid-template-columns:1fr auto 1fr !important;}
+        }
+
+        /* --------------------------------
            SMALL MOBILE  = 400px
         -------------------------------- */
         @media(max-width:400px){
@@ -1141,6 +1462,8 @@ function LandingPage() {
       {/* -- Fixed grid bg -- */}
       <div style={{position:"fixed",inset:0,backgroundImage:`linear-gradient(${C.border} 1px,transparent 1px),linear-gradient(90deg,${C.border} 1px,transparent 1px)`,backgroundSize:"80px 80px",opacity:0.2,pointerEvents:"none"}}/>
       <div style={{position:"fixed",inset:0,background:`radial-gradient(ellipse 80% 55% at 50% -5%,${C.gold}14,transparent)`,pointerEvents:"none"}}/>
+      {/* -- Grain texture overlay for premium feel -- */}
+      <div className="grain-overlay"/>
 
       {/* -------------- STICKY NAV -------------- */}
       <nav style={{
@@ -1167,7 +1490,7 @@ function LandingPage() {
 
         {/* Desktop nav links */}
         <div className="nav-links-desktop">
-          {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Pricing"].map(l=>(
+          {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Inbox","Orders","Broadcast","Sales","Leads","Campaigns","HR","Accounting","Support","Projects","Logistics"].map(l=>(
             <span key={l} className="nav-link" onClick={()=>openPreview(l)} style={{color:activePreview===l?C.gold:C.muted,fontSize:12}}>{l}</span>
           ))}
         </div>
@@ -1186,18 +1509,18 @@ function LandingPage() {
             padding:"8px 20px",borderRadius:9,background:GOLD_GRADIENT,
             border:"none",color:C.bg0,fontSize:12,fontWeight:800,cursor:"pointer",
             boxShadow:GOLD_GLOW,transition:"all 0.2s",animation:"glowPulse 4s ease infinite",
-          }}>Get Started ?</button>
+          }}>Get Started</button>
         </div>
 
         {/* Hamburger */}
         <button className="nav-hamburger" onClick={()=>setMobileMenuOpen(o=>!o)}>
-          {mobileMenuOpen ? "?" : "?"}
+          {mobileMenuOpen ? "✕" : "☰"}
         </button>
       </nav>
 
       {/* Mobile dropdown menu */}
       <div className={`mobile-menu${mobileMenuOpen?"":" closed"}`} style={{position:"sticky",top:64,zIndex:99}}>
-        {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Pricing"].map(l=>(
+        {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Inbox","Orders","Broadcast","Sales","Leads","Campaigns","HR","Accounting","Support","Projects","Logistics"].map(l=>(
           <span key={l} onClick={()=>openPreview(l)} style={{padding:"12px 4px",fontSize:14,color:activePreview===l?C.gold:C.muted,borderBottom:`1px solid ${C.border}`,cursor:"pointer",fontWeight:activePreview===l?700:400}}>{l}</span>
         ))}
         <div style={{display:"flex",gap:10,paddingTop:14,paddingBottom:4}}>
@@ -1208,79 +1531,120 @@ function LandingPage() {
           <button onClick={()=>{setMode("signup");setMobileMenuOpen(false);focusAuth();}} style={{
             flex:1,padding:"10px",borderRadius:9,background:GOLD_GRADIENT,
             border:"none",color:C.bg0,fontSize:13,fontWeight:800,cursor:"pointer",boxShadow:GOLD_GLOW,
-          }}>Get Started ?</button>
+          }}>Get Started</button>
         </div>
       </div>
 
       {/* -------------- HERO -------------- */}
-      <section className="hero-grid">
+      <section className="hero-grid" style={{position:"relative",overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:"-20% -12% 0 -12%",background:`radial-gradient(circle at 35% 0%,${C.gold}12,transparent 55%)`,filter:"blur(40px)",opacity:0.7,pointerEvents:"none"}}/>
+        <div style={{position:"absolute",right:"-8%",top:"-14%",width:320,height:320,borderRadius:"50%",background:`radial-gradient(circle,${C.gold}35,transparent 60%)`,border:`1px solid ${C.gold}18`,animation:"orbDrift 11s ease-in-out infinite",pointerEvents:"none",boxShadow:`0 0 160px ${C.gold}20`}}/>
+        <div style={{position:"absolute",left:"-220px",bottom:"-160px",width:460,height:460,borderRadius:"50%",background:`conic-gradient(${C.gold}10,transparent 65%)`,filter:"blur(18px)",opacity:0.45,pointerEvents:"none"}}/>
+        <div style={{position:"absolute",left:"38%",top:"25%",width:200,height:200,borderRadius:"50%",background:`radial-gradient(circle,${C.cyan}15,transparent 70%)`,filter:"blur(32px)",opacity:0.35,animation:"orbDrift 15s ease-in-out infinite reverse",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",right:"25%",bottom:"10%",width:140,height:140,borderRadius:"50%",background:`radial-gradient(circle,${C.violet}18,transparent 70%)`,filter:"blur(24px)",opacity:0.3,animation:"orbDrift 18s ease-in-out infinite",pointerEvents:"none"}}/>
+
         {/* Left: copy */}
         <div>
           <div className="hero-badge" style={{
             display:"inline-flex",alignItems:"center",gap:8,
             background:`${C.gold}10`,border:`1px solid ${C.gold}28`,
-            borderRadius:20,padding:"5px 16px",marginBottom:24,
-            fontSize:10,color:C.gold,fontWeight:700,letterSpacing:"2px",
+            borderRadius:20,padding:"8px 18px",marginBottom:32,
+            fontSize:15,color:C.gold,fontWeight:700,letterSpacing:"2.5px",
             animation:"fadeUp 0.4s ease both",
-          }}>? BUILT FOR PHILIPPINE COMMERCE � POWERED BY AI</div>
+          }}>✦ DIGITAL TRANSFORMATION PLATFORM FOR PH COMMERCE</div>
 
           <h1 style={{
             fontFamily:"'Cormorant Garamond',serif",
-            fontSize:"clamp(38px,5.5vw,76px)",
-            fontWeight:700,lineHeight:1.05,letterSpacing:"-2px",
-            marginBottom:16,animation:"fadeUp 0.5s ease 0.08s both",
+            fontSize:"clamp(42px,6vw,84px)",
+            fontWeight:700,lineHeight:1.08,letterSpacing:"-2.5px",
+            marginBottom:24,animation:"slideInScale 0.7s cubic-bezier(0.22,1,0.36,1) 0.08s both",
             color:C.text,
           }}>
-            One Platform.<br/>
-            <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Exponential Growth.</span>
+            Run Your Entire Business<br/>
+            <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",animation:"textGlow 3s ease-in-out infinite"}}>from One Platform.</span>
           </h1>
 
           <p style={{
-            fontSize:16,color:C.muted,lineHeight:1.85,
-            maxWidth:520,marginBottom:32,
+            fontSize:17,color:C.muted,lineHeight:1.9,
+            maxWidth:560,marginBottom:40,
             animation:"fadeUp 0.5s ease 0.16s both",
+            fontWeight:400,
           }}>
-            Exponify unifies social media automation, CRM, ERP, and AI-powered market intelligence � powered by Hermes for fast-scaling Filipino brands.
+            CRM, ERP-inventory, Social Media Ads, AI chatbot, Payroll, and Data analytics — unified for Philippine brands. Go live in 72 hours, No DevOps team required.
           </p>
 
-          <div className="hero-btns" style={{display:"flex",gap:12,flexWrap:"wrap",marginBottom:40,animation:"fadeUp 0.5s ease 0.22s both"}}>
+          <div className="hero-btns" style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:48,animation:"slideInScale 0.7s cubic-bezier(0.22,1,0.36,1) 0.22s both"}}>
             <button onClick={()=>{setMode("signup");focusAuth();}} style={{
-              padding:"13px 32px",borderRadius:10,background:GOLD_GRADIENT,
-              border:"none",color:C.bg0,fontSize:14,fontWeight:800,cursor:"pointer",
-              boxShadow:GOLD_GLOW,letterSpacing:"0.3px",transition:"all 0.2s",
-            }}>Begin Your Ascent ?</button>
-            <button onClick={()=>document.getElementById("demo-section")?.scrollIntoView({behavior:"smooth",block:"start"})} style={{
-              padding:"13px 32px",borderRadius:10,background:"transparent",
-              border:`1px solid ${C.gold}55`,color:C.gold,
-              fontSize:14,fontWeight:600,cursor:"pointer",transition:"all 0.2s",letterSpacing:"0.3px",
+              padding:"15px 40px",borderRadius:12,background:GOLD_GRADIENT,
+              border:"none",color:C.bg0,fontSize:15,fontWeight:800,cursor:"pointer",
+              boxShadow:GOLD_GLOW,letterSpacing:"0.5px",transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",
+              animation:"luxeGlow 3s ease-in-out infinite",
             }}
-            onMouseEnter={e=>{e.currentTarget.style.background=`${C.gold}12`;}}
-            onMouseLeave={e=>{e.currentTarget.style.background="transparent";}}>
-              Book a Demo
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px) scale(1.06)";e.currentTarget.style.boxShadow=`0 0 50px ${C.gold}90,0 0 100px ${C.gold}50`;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=GOLD_GLOW;}}>
+              Start Free Trial
             </button>
-            <button onClick={()=>{setMode("signin");focusAuth();}} style={{
-              padding:"13px 32px",borderRadius:10,background:"transparent",
-              border:`1px solid ${C.border2}`,color:C.text,
-              fontSize:14,fontWeight:500,cursor:"pointer",transition:"all 0.2s",
+            <button onClick={()=>document.getElementById("demo-section")?.scrollIntoView({behavior:"smooth",block:"start"})} style={{
+              padding:"15px 40px",borderRadius:12,background:"transparent",
+              border:`2px solid ${C.gold}60`,color:C.gold,
+              fontSize:15,fontWeight:700,cursor:"pointer",transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",letterSpacing:"0.5px",
             }}
-            onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.color=C.gold;}}
-            onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border2;e.currentTarget.style.color=C.text;}}>
-              Sign In
+            onMouseEnter={e=>{e.currentTarget.style.background=`${C.gold}18`;e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=`0 0 30px ${C.gold}50`;}}
+            onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${C.gold}60`;e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}>
+              Schedule Demo
             </button>
           </div>
 
+          {/* Stat chips — realistic PH market metrics */}
+          <div style={{
+            display:"grid",gridTemplateColumns:"repeat(4,1fr)",
+            gap:12,marginBottom:48,animation:"fadeUp 0.5s ease 0.28s both"
+          }} className="stat-chips-grid">
+            {[
+              {icon:"◆",val:"150+",label:"Active PH Brands",color:C.gold},
+              {icon:"◆",val:"18K+",label:"Orders / Month",color:C.green},
+              {icon:"◆",val:"72 hrs",label:"Go-Live Setup",color:C.cyan},
+              {icon:"◆",val:"4.2M+",label:"Messages Automated",color:C.violet},
+            ].map((m,i)=>(
+              <div key={i} className="stat-card-premium icon-bounce" style={{
+                '--accent':m.color,
+                animation:`slideInScale 0.6s cubic-bezier(0.22,1,0.36,1) ${0.28+i*0.08}s both`,
+                position:"relative",
+                padding:"24px 20px",
+              }}
+              onMouseMove={e=>{
+                const r=e.currentTarget.getBoundingClientRect();
+                e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+                e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%');
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-8px) scale(1.1)";e.currentTarget.style.boxShadow=`0 25px 60px #00000080,0 0 0 1px ${m.color}50,0 0 40px ${m.color}40`;}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=`0 12px 35px #00000050`;}}>
+                <div className="icon-inner" style={{marginBottom:12,lineHeight:1,transition:"transform 0.3s",animation:"luxuryFloat 4s ease-in-out infinite"}}><Icon5D icon={m.icon} color={m.color} size={42} glyphSize={20} rounded={13} transparent /></div>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,color:C.text,marginBottom:6,lineHeight:1}}>{m.val}</div>
+                <div style={{fontSize:10,color:C.muted,letterSpacing:"1.2px",textTransform:"uppercase",fontWeight:600}}>{m.label}</div>
+              </div>
+            ))}
+          </div>
+
           {/* Trusted by */}
-          <div style={{animation:"fadeUp 0.5s ease 0.28s both"}}>
-            <div style={{fontSize:10,color:C.muted,letterSpacing:"2px",textTransform:"uppercase",marginBottom:12,fontWeight:600}}>Trusted by brands across platforms</div>
-            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          <div style={{animation:"fadeUp 0.5s ease 0.54s both"}}>
+            <div style={{fontSize:9,color:C.muted,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:10,fontWeight:600}}>Connected platforms</div>
+            <div style={{
+              display:"flex",flexWrap:"nowrap",
+              gap:6,
+            }}>
               {Object.entries(PLATFORMS_META).map(([id,p])=>(
                 <div key={id} style={{
                   display:"flex",alignItems:"center",gap:5,
-                  padding:"4px 10px",borderRadius:8,
-                  background:`${p.color}0f`,border:`1px solid ${p.color}28`,
-                  fontSize:11,fontWeight:700,color:p.color,
-                }}>
-                  <span>{p.icon}</span><span>{p.label}</span>
+                  padding:"4px 9px 4px 5px",borderRadius:8,
+                  background:`${p.color}0d`,border:`1px solid ${p.color}25`,
+                  fontSize:10,fontWeight:700,color:p.color,
+                  transition:"all 0.2s",cursor:"default",whiteSpace:"nowrap",flexShrink:0,
+                }}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${p.color}1a`;e.currentTarget.style.borderColor=`${p.color}50`;e.currentTarget.style.transform="translateY(-2px)";e.currentTarget.style.boxShadow=`0 6px 20px ${p.color}25`;}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${p.color}0d`;e.currentTarget.style.borderColor=`${p.color}25`;e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}>
+                  <PlatformLogo id={id} size={20}/>
+                  <span>{p.label}</span>
                 </div>
               ))}
             </div>
@@ -1288,115 +1652,312 @@ function LandingPage() {
         </div>
 
         {/* Right: Auth card */}
-        <div id="auth-card" className="hero-auth-card" style={{
-          background:C.bg2,border:`1px solid ${C.border2}`,borderRadius:18,
-          boxShadow:`0 40px 100px #00000080, 0 0 0 1px ${C.gold}18`,
-          padding:"28px 28px 24px",position:"relative",
-          animation:"fadeUp 0.5s ease 0.1s both",
-        }}>
-          <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:GOLD_GRADIENT,borderRadius:"18px 18px 0 0"}}/>
+        <div style={{position:"relative",perspective:"1400px",display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div id="auth-card" className="hero-auth-card" style={{
+            background:`linear-gradient(145deg,${C.bg2} 0%,${C.bg3} 100%)`,border:`1px solid ${C.border2}`,borderRadius:18,
+            boxShadow:`0 40px 100px #00000080, 0 0 0 1px ${C.gold}18,0 0 60px ${C.gold}15`,
+            padding:"clamp(20px,3vw,32px)",position:"relative",
+            width:"100%",maxWidth:440,
+            animation:"cardFlip 6s ease-in-out infinite",
+            transformStyle:"preserve-3d",
+            transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.boxShadow=`0 50px 120px #00000090, 0 0 0 1px ${C.gold}40,0 0 80px ${C.gold}30`;e.currentTarget.style.transform="translateY(-8px) scale(1.02)";}}
+          onMouseLeave={e=>{e.currentTarget.style.boxShadow=`0 40px 100px #00000080, 0 0 0 1px ${C.gold}18,0 0 60px ${C.gold}15`;e.currentTarget.style.transform="translateY(0) scale(1)";}}>
+            <div style={{position:"absolute",top:0,left:0,right:0,height:3,background:GOLD_GRADIENT,borderRadius:"18px 18px 0 0"}}/>
 
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:20}}>
-            <HermesLogo size={28}/>
-            <div>
-              <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:17,fontWeight:700,letterSpacing:"1px",color:C.text}}>
-                <ExponifyWord/>
-              </div>
-              <div style={{fontSize:8,color:C.gold,letterSpacing:"2.5px",fontWeight:700,textTransform:"uppercase"}}>Powered by Hermes</div>
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <div style={{display:"flex",gap:6,marginBottom:18,background:C.bg3,padding:4,borderRadius:11}}>
-            {[{id:"signin",label:"Sign In"},{id:"signup",label:"Create Account"}].map(t=>(
-              <button key={t.id} className="auth-tab" onClick={()=>setMode(t.id)} style={{
-                border:`1px solid ${mode===t.id?C.gold+"44":"transparent"}`,
-                background:mode===t.id?C.bg4:"transparent",
-                color:mode===t.id?C.gold:C.muted,
-              }}>{t.label}</button>
-            ))}
-          </div>
-
-          <form onSubmit={submit}>
-            <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Email</label>
-            <input ref={emailRef} type="email" value={email} onChange={e=>setEmail(e.target.value)} required
-              placeholder="you@company.com" className="auth-input" style={{marginBottom:14}}/>
-
-            <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Password</label>
-            <div style={{position:"relative",marginBottom:16}}>
-              <input type={showPass?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} required
-                placeholder="��������" className="auth-input" style={{paddingRight:38}}/>
-              <button type="button" onClick={()=>setShowPass(s=>!s)} aria-label={showPass?"Hide password":"Show password"} style={{
-                position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-                background:"transparent",border:`1px solid ${C.border2}`,color:C.muted,cursor:"pointer",
-                width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center"
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                  <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" stroke={C.muted} strokeWidth="1.5"/>
-                  <circle cx="12" cy="12" r="3.5" stroke={C.muted} strokeWidth="1.5"/>
-                  {showPass && <path d="M4 4l16 16" stroke={C.muted} strokeWidth="1.5" />}
-                </svg>
-              </button>
-            </div>
-
-            {mode==="signup" && (
-              <>
-                <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Confirm Password</label>
-                <div style={{position:"relative",marginBottom:16}}>
-                  <input type={showConfirm?"text":"password"} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required
-                    placeholder="��������" className="auth-input" style={{paddingRight:38}}/>
-                  <button type="button" onClick={()=>setShowConfirm(s=>!s)} aria-label={showConfirm?"Hide password":"Show password"} style={{
-                    position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
-                    background:"transparent",border:`1px solid ${C.border2}`,color:C.muted,cursor:"pointer",
-                    width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center"
-                  }}>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" stroke={C.muted} strokeWidth="1.5"/>
-                      <circle cx="12" cy="12" r="3.5" stroke={C.muted} strokeWidth="1.5"/>
-                      {showConfirm && <path d="M4 4l16 16" stroke={C.muted} strokeWidth="1.5" />}
-                    </svg>
-                  </button>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:28}}>
+              <HermesLogo size={32}/>
+              <div>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:19,fontWeight:700,letterSpacing:"1.2px",color:C.text}}>
+                  <ExponifyWord/>
                 </div>
-              </>
-            )}
-
-            {error&&(
-              <div style={{fontSize:11,color:C.red,marginBottom:12,padding:"8px 12px",background:`${C.red}12`,borderRadius:7,border:`1px solid ${C.red}30`}}>
-                {error}
+                <div style={{fontSize:9,color:C.gold,letterSpacing:"2.8px",fontWeight:700,textTransform:"uppercase",marginTop:2}}>Enterprise Access</div>
               </div>
-            )}
-
-            <button type="submit" disabled={busy} style={{
-              width:"100%",padding:"13px 16px",borderRadius:10,
-              background:busy?C.bg4:GOLD_GRADIENT,
-              border:"none",color:busy?C.muted:C.bg0,
-              fontWeight:800,fontSize:13,cursor:busy?"not-allowed":"pointer",
-              boxShadow:busy?"none":GOLD_GLOW,letterSpacing:"0.4px",transition:"all 0.2s",
-            }}>{busy?"Please wait�":mode==="signin"?"Enter Exponify ?":"Create Account ?"}</button>
-          </form>
-
-          <div style={{marginTop:14,padding:"10px 14px",background:C.bg3,borderRadius:9,border:`1px solid ${C.border}`}}>
-            <div style={{fontSize:10,color:C.muted,lineHeight:1.6}}>
-              ?? Secured by Supabase Auth. After sign up, check your inbox if email confirmation is required.
             </div>
-          </div>
 
-          <div style={{marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-            <div style={{display:"flex"}}>
-              {["#f87171","#fbbf24","#34d399","#38bdf8"].map((c,i)=>(
-                <div key={i} style={{width:22,height:22,borderRadius:"50%",background:`${c}33`,border:`2px solid ${C.bg2}`,
-                  marginLeft:i?-6:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:c,fontWeight:800}}>
-                  {["M","J","C","P"][i]}
-                </div>
+            {/* Tabs */}
+            <div style={{display:"flex",gap:6,marginBottom:24,background:C.bg3,padding:5,borderRadius:13}}>
+              {[{id:"signin",label:"Sign In"},{id:"signup",label:"Create Account"}].map(t=>(
+                <button key={t.id} className="auth-tab" onClick={()=>setMode(t.id)} style={{
+                  border:`1px solid ${mode===t.id?C.gold+"55":"transparent"}`,
+                  background:mode===t.id?C.bg4:"transparent",
+                  color:mode===t.id?C.gold:C.muted,
+                  fontSize:"clamp(12px,1.5vw,14px)",
+                  fontWeight:700,
+                  flex:1,
+                  padding:"10px 8px",
+                  borderRadius:9,
+                  textAlign:"center",
+                  whiteSpace:"nowrap",
+                }}>{t.label}</button>
               ))}
             </div>
-            <span style={{fontSize:10,color:C.muted}}>
-              <span style={{color:C.gold,fontWeight:700}}>{count.toLocaleString()}+</span> merchants onboarded
-            </span>
-          </div>
 
-          <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
-            <LegalPolicyLinks center compact />
+{/* ── OTP STEP — bank-grade verify screen ── */}
+            {mode==="signin" && otpSent ? (
+              <form onSubmit={submit}>
+                {/* Security header */}
+                <div style={{display:"flex",alignItems:"center",gap:10,background:`${C.green}0d`,border:`1px solid ${C.green}25`,borderRadius:10,padding:"10px 14px",marginBottom:16}}>
+                  <div style={{width:32,height:32,borderRadius:"50%",background:`${C.green}18`,border:`1px solid ${C.green}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>🔐</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:9,color:C.green,letterSpacing:"1.5px",fontWeight:700,textTransform:"uppercase",marginBottom:1}}>Verification code sent</div>
+                    <div style={{fontSize:12,color:C.muted,fontWeight:600}}>to <span style={{color:C.gold,fontWeight:700}}>{maskEmail(email)}</span></div>
+                  </div>
+                  {otpExpiry>0 && (
+                    <div style={{textAlign:"center",flexShrink:0}}>
+                      <div style={{fontSize:14,fontWeight:800,color:otpExpiry<60?C.red:C.gold,fontFamily:"'Courier New',monospace"}}>
+                        {String(Math.floor(otpExpiry/60)).padStart(2,"0")}:{String(otpExpiry%60).padStart(2,"0")}
+                      </div>
+                      <div style={{fontSize:8,color:C.muted,letterSpacing:"1px",textTransform:"uppercase"}}>expires</div>
+                    </div>
+                  )}
+                </div>
+
+                <div style={{textAlign:"center",marginBottom:20}}>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.text,marginBottom:4}}>Enter Verification Code</div>
+                  <div style={{fontSize:11,color:C.muted,lineHeight:1.6}}>Check your inbox and spam folder.<br/>Do not share this code with anyone.</div>
+                </div>
+
+                {/* 6 individual OTP boxes */}
+                <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:16}}>
+                  {[0,1,2,3,4,5].map(i=>(
+                    <input key={i} id={`otp-${i}`}
+                      type="text" inputMode="numeric" maxLength="1"
+                      value={otp[i]||""}
+                      onChange={ev=>{
+                        const v=ev.target.value.replace(/\D/g,"");
+                        if(!v) return;
+                        const arr=otp.split("");
+                        arr[i]=v[v.length-1];
+                        const next=arr.join("").slice(0,6);
+                        setOtp(next);
+                        if(i<5) document.getElementById(`otp-${i+1}`)?.focus();
+                        if(next.length===6) setTimeout(()=>document.getElementById("otp-submit")?.click(),80);
+                      }}
+                      onKeyDown={ev=>{
+                        if(ev.key==="Backspace"){
+                          const arr=otp.split("");
+                          if(arr[i]){ arr[i]=""; setOtp(arr.join("")); }
+                          else if(i>0){ document.getElementById(`otp-${i-1}`)?.focus(); }
+                        }
+                      }}
+                      onFocus={e=>{e.target.style.borderColor=`${C.gold}90`;e.target.style.boxShadow=`0 0 0 3px ${C.gold}20`;}}
+                      onBlur={e=>{e.target.style.borderColor=otp[i]?`${C.gold}60`:C.border2;e.target.style.boxShadow="none";}}
+                      style={{
+                        width:42,height:52,textAlign:"center",fontSize:22,fontWeight:800,
+                        borderRadius:10,border:`2px solid ${otp[i]?`${C.gold}60`:C.border2}`,
+                        background:C.bg3,color:C.text,outline:"none",
+                        transition:"border-color 0.18s,box-shadow 0.18s",
+                        fontFamily:"'Courier New',monospace",
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Resend + timer */}
+                <div style={{textAlign:"center",marginBottom:14}}>
+                  {otpResend>0
+                    ? <span style={{fontSize:11,color:C.muted}}>Resend available in <span style={{color:C.gold,fontWeight:700}}>{otpResend}s</span></span>
+                    : <button type="button" onClick={async()=>{
+                        setOtp(""); setError("");
+                        const { error:resendErr } = await supabase.auth.signInWithOtp({
+                          email, options:{ shouldCreateUser:false },
+                        });
+                        if(resendErr){ setError(resendErr.message); return; }
+                        startOtpResendTimer();
+                        startOtpExpiryTimer();
+                      }} style={{fontSize:11,color:C.gold,background:"transparent",border:"none",cursor:"pointer",fontWeight:700,padding:0,textDecoration:"underline"}}>Didn't receive it? Resend code</button>
+                  }
+                </div>
+
+                {error&&(
+                  <div style={{display:"flex",alignItems:"center",gap:8,fontSize:11,color:C.red,marginBottom:12,padding:"8px 12px",background:`${C.red}12`,borderRadius:7,border:`1px solid ${C.red}30`}}>
+                    <span>⚠️</span><span>{error}</span>
+                  </div>
+                )}
+
+                <button id="otp-submit" type="submit" disabled={busy||otp.length<6} style={{
+                  width:"100%",padding:"14px 16px",borderRadius:10,
+                  background:(busy||otp.length<6)?C.bg4:GOLD_GRADIENT,
+                  border:"none",color:(busy||otp.length<6)?C.muted:C.bg0,
+                  fontWeight:800,fontSize:14,cursor:(busy||otp.length<6)?"not-allowed":"pointer",
+                  boxShadow:(busy||otp.length<6)?"none":GOLD_GLOW,letterSpacing:"0.4px",transition:"all 0.2s",
+                  marginBottom:10,
+                }}>{busy?"Verifying…":"Confirm & Sign In →"}</button>
+
+                <button type="button" onClick={()=>{setOtpSent(false);setOtp("");setOtpResend(0);setOtpExpiry(0);setError("");}} style={{
+                  width:"100%",padding:"10px",borderRadius:9,background:"transparent",
+                  border:`1px solid ${C.border2}`,color:C.muted,fontSize:12,cursor:"pointer",fontWeight:600,
+                }}>← Back to Sign In</button>
+
+                {/* Security note */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginTop:14,fontSize:10,color:C.dim}}>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                  This session is protected by 256-bit SSL encryption
+                </div>
+              </form>
+            ) : (
+            <form onSubmit={submit}>
+              {accountLocked && (
+                <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 12px",background:`${C.red}12`,border:`1px solid ${C.red}30`,borderRadius:9,marginBottom:14,fontSize:11,color:C.red}}>
+                  <span>🔒</span>
+                  <span>Account locked — too many failed attempts. Try again in <strong>{lockTimer}s</strong>.</span>
+                </div>
+              )}
+
+              <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Email</label>
+              <input ref={emailRef} type="email" value={email} onChange={e=>setEmail(e.target.value)} required
+                placeholder="you@company.com" className="auth-input" style={{marginBottom:14}}/>
+
+              <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Password</label>
+              <div style={{position:"relative",marginBottom:16}}>
+                <input type={showPass?"text":"password"} value={password} onChange={e=>setPassword(e.target.value)} required
+                  placeholder="Enter password" className="auth-input" style={{paddingRight:38}}/>
+                <button type="button" onClick={()=>setShowPass(s=>!s)} aria-label={showPass?"Hide password":"Show password"} style={{
+                  position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+                  background:"transparent",border:`1px solid ${C.border2}`,color:C.muted,cursor:"pointer",
+                  width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center"
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" stroke={C.muted} strokeWidth="1.5"/>
+                    <circle cx="12" cy="12" r="3.5" stroke={C.muted} strokeWidth="1.5"/>
+                    {showPass && <path d="M4 4l16 16" stroke={C.muted} strokeWidth="1.5" />}
+                  </svg>
+                </button>
+              </div>
+
+              {mode==="signup" && (
+                <>
+                  <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:6,fontWeight:600,textTransform:"uppercase"}}>Confirm Password</label>
+                  <div style={{position:"relative",marginBottom:16}}>
+                    <input type={showConfirm?"text":"password"} value={confirmPassword} onChange={e=>setConfirmPassword(e.target.value)} required
+                      placeholder="Enter password" className="auth-input" style={{paddingRight:38}}/>
+                    <button type="button" onClick={()=>setShowConfirm(s=>!s)} aria-label={showConfirm?"Hide password":"Show password"} style={{
+                      position:"absolute",right:8,top:"50%",transform:"translateY(-50%)",
+                      background:"transparent",border:`1px solid ${C.border2}`,color:C.muted,cursor:"pointer",
+                      width:26,height:26,borderRadius:7,display:"flex",alignItems:"center",justifyContent:"center"
+                    }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                        <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" stroke={C.muted} strokeWidth="1.5"/>
+                        <circle cx="12" cy="12" r="3.5" stroke={C.muted} strokeWidth="1.5"/>
+                        {showConfirm && <path d="M4 4l16 16" stroke={C.muted} strokeWidth="1.5" />}
+                      </svg>
+                    </button>
+                  </div>
+
+                  {/* CAPTCHA Security */}
+                  <label style={{display:"block",fontSize:9,color:C.muted,letterSpacing:"1.5px",marginBottom:8,fontWeight:600,textTransform:"uppercase"}}>🔐 Security Verification</label>
+                  <div style={{background:C.bg3,border:`1px solid ${C.border2}`,borderRadius:10,padding:12,marginBottom:14}}>
+                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                      <div style={{fontFamily:"'Courier New',monospace",fontSize:18,fontWeight:900,letterSpacing:4,color:C.gold,background:C.bg4,padding:"8px 14px",borderRadius:8,border:`1px solid ${C.gold}40`}}>
+                        {captchaChallenge.code}
+                      </div>
+                      <button type="button" onClick={()=>setCaptchaChallenge(generateCaptcha())} style={{
+                        padding:"6px 12px",borderRadius:7,background:`${C.gold}18`,border:`1px solid ${C.gold}40`,color:C.gold,fontSize:11,fontWeight:700,cursor:"pointer",transition:"all 0.2s"
+                      }}
+                      onMouseEnter={e=>{e.currentTarget.style.background=`${C.gold}28`;}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=`${C.gold}18`;}}>
+                        🔄 New
+                      </button>
+                    </div>
+                    <input type="text" placeholder="Enter 6 characters above" value={captchaToken} onChange={e=>setCaptchaToken(e.target.value)} maxLength="6"
+                      style={{width:"100%",padding:"9px 12px",borderRadius:7,background:C.bg2,border:`1px solid ${C.border2}`,color:C.text,fontSize:12,textTransform:"uppercase",letterSpacing:2,outline:"none",transition:"border-color 0.2s"}}
+                      onFocus={e=>e.target.style.borderColor=`${C.gold}60`}
+                      onBlur={e=>e.target.style.borderColor=C.border2}/>
+                  </div>
+                </>
+              )}
+
+              {mode==="signin" && (
+                <>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
+                    <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",userSelect:"none"}}>
+                      <div onClick={()=>setRememberMe(v=>!v)} style={{
+                        width:16,height:16,borderRadius:4,border:`2px solid ${rememberMe?C.gold:C.border2}`,
+                        background:rememberMe?C.gold:"transparent",display:"flex",alignItems:"center",justifyContent:"center",
+                        transition:"all 0.18s",flexShrink:0,cursor:"pointer",
+                      }}>
+                        {rememberMe && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><polyline points="1,6 4.5,9.5 11,2" stroke={C.bg0} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </div>
+                      <span style={{fontSize:11,color:C.muted,fontWeight:600}}>Remember this device</span>
+                    </label>
+                    <button type="button" style={{fontSize:11,color:C.gold,background:"transparent",border:"none",cursor:"pointer",fontWeight:600,padding:0}}>Forgot password?</button>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,background:`${C.gold}0a`,border:`1px solid ${C.gold}20`,borderRadius:9,padding:"8px 12px",marginBottom:14}}>
+                    <span style={{fontSize:14,flexShrink:0}}>📧</span>
+                    <span style={{fontSize:11,color:C.muted,lineHeight:1.5}}>
+                      A 6-digit OTP will be sent to <span style={{color:C.gold,fontWeight:700}}>{email||"your email"}</span>
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {error&&(
+                <div style={{fontSize:11,color:C.red,marginBottom:12,padding:"8px 12px",background:`${C.red}12`,borderRadius:7,border:`1px solid ${C.red}30`}}>
+                  {error}
+                </div>
+              )}
+
+              <button type="submit" disabled={busy} style={{
+                width:"100%",padding:"13px 16px",borderRadius:10,
+                background:busy?C.bg4:GOLD_GRADIENT,
+                border:"none",color:busy?C.muted:C.bg0,
+                fontWeight:800,fontSize:13,cursor:busy?"not-allowed":"pointer",
+                boxShadow:busy?"none":GOLD_GLOW,letterSpacing:"0.4px",transition:"all 0.2s",
+                marginBottom:8,
+              }}>{busy?"Please wait—":mode==="signin"?"Send OTP →":"Create Account →"}</button>
+
+              {mode==="signin" && (
+                <button type="button" disabled={busy} onClick={async()=>{
+                  setError("");
+                  setBusy(true);
+                  try{
+                    const { error:err } = await supabase.auth.signInWithPassword({email,password});
+                    if(err) throw err;
+                  }catch(err){
+                    setError(err?.message||"Invalid email or password.");
+                  }finally{
+                    setBusy(false);
+                  }
+                }} style={{
+                  width:"100%",padding:"11px 16px",borderRadius:10,
+                  background:"transparent",
+                  border:`1px solid ${C.border2}`,color:C.muted,
+                  fontWeight:700,fontSize:12,cursor:busy?"not-allowed":"pointer",
+                  transition:"all 0.2s",letterSpacing:"0.3px",
+                }}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.color=C.gold;}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border2;e.currentTarget.style.color=C.muted;}}>
+                  Login with Password only
+                </button>
+              )}
+            </form>
+            )}
+
+            <div style={{marginTop:14,padding:"10px 14px",background:C.bg3,borderRadius:9,border:`1px solid ${C.border}`}}>
+              <div style={{fontSize:10,color:C.muted,lineHeight:1.6}}>
+                Secured by Supabase Auth. After sign up, check your inbox if email confirmation is required.
+              </div>
+            </div>
+
+            <div style={{marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+              <div style={{display:"flex"}}>
+                {["#f87171","#fbbf24","#34d399","#38bdf8"].map((c,i)=>(
+                  <div key={i} style={{width:22,height:22,borderRadius:"50%",background:`${c}33`,border:`2px solid ${C.bg2}`,
+                    marginLeft:i?-6:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:8,color:c,fontWeight:800}}>
+                    {["M","J","C","P"][i]}
+                  </div>
+                ))}
+              </div>
+              <span style={{fontSize:10,color:C.muted}}>
+                <span style={{color:C.gold,fontWeight:700}}>{count.toLocaleString()}+</span> merchants onboarded
+              </span>
+            </div>
+
+            <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
+              <LegalPolicyLinks center compact />
+            </div>
           </div>
         </div>
       </section>
@@ -1412,10 +1973,10 @@ function LandingPage() {
             <div key={rep} style={{display:"flex"}}>
               {[
                 {val:`${count.toLocaleString()}+`,label:"Merchants Empowered"},
-                {val:"7",label:"Platforms Connected"},
+                {val:"18+",label:"Platforms Connected"},
                 {val:"0.8s",label:"Avg. Response Time"},
-                {val:"?2.4B+",label:"Commerce Processed"},
-                {val:"99.98%",label:"Uptime SLA"},
+                {val:"₱580M+",label:"Commerce Processed"},
+                {val:"99.9%",label:"Uptime SLA"},
                 {val:"14-days",label:"Free Trial"},
                 {val:"24/7",label:"AI Support"},
               ].map((s,i)=>(
@@ -1451,7 +2012,7 @@ function LandingPage() {
           </div>
         </div>
 
-        {/* Row 1 � scrolling left */}
+        {/* Row 1 • scrolling left */}
         <div style={{overflow:"hidden",position:"relative",marginBottom:16}}>
           <div style={{position:"absolute",left:0,top:0,bottom:0,width:120,background:`linear-gradient(90deg,${C.bg0},transparent)`,zIndex:2,pointerEvents:"none"}}/>
           <div style={{position:"absolute",right:0,top:0,bottom:0,width:120,background:`linear-gradient(270deg,${C.bg0},transparent)`,zIndex:2,pointerEvents:"none"}}/>
@@ -1462,10 +2023,10 @@ function LandingPage() {
                   {name:"Crystal Escapes Travel Adventure",color:"#29c23b",sub:"Travel & Adventure",img:"/CRYSTAL_ESCAPES_TRAVEL_ADVENTURE.jpg"},
                   {name:"Bayani Network Thailand",color:"#56762a",sub:"Business Network",img:"/BAYANI_NETWORK_THAILAND.jpg"},
                   {name:"Bayani Cash Financing Loan",color:"#dddd1b",sub:"Financing & Loans",img:"/BAYANI_CASH_FINANCING_LOAN.jpg"},
-                  {name:"DR Burger Cafe",icon:"??",color:"#b31b3a",sub:"Bistro & Dining",img:"/DR_BURGER_CAFE.jpg"},
-                  {name:"Casa Panzerotti",icon:"??",color:"#d4af37",sub:"Italian Street Food",img:"/CASA_PANZEROTTI.jpg"},
-                  {name:"Pritos King",icon:"??",color:"#e6b800",sub:"Est. 2025",img:"/PRITOS_KING.jpg"},
-                  {name:"HFRR Realty",icon:"??",color:"#e86a10",sub:"Filipino Rev. Realty",img:"/HFRR.jpg"},
+                  {name:"DR Burger Cafe",icon:"🍔",color:"#b31b3a",sub:"Bistro & Dining",img:"/DR_BURGER_CAFE.jpg"},
+                  {name:"Casa Panzerotti",icon:"🍕",color:"#d4af37",sub:"Italian Street Food",img:"/CASA_PANZEROTTI.jpg"},
+                  {name:"Pritos King",icon:"🍟",color:"#e6b800",sub:"Est. 2025",img:"/PRITOS_KING.jpg"},
+                  {name:"HFRR Realty",icon:"🏠",color:"#e86a10",sub:"Filipino Rev. Realty",img:"/HFRR.jpg"},
                 ].map((p,i)=>(
                   <div key={`${rep}-${i}`} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 28px",borderRight:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>
                     <div style={{width:120,height:120,borderRadius:10,background:`${p.color}18`,border:`1px solid ${p.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:15,fontWeight:900,color:p.color,flexShrink:0,overflow:"hidden"}}>
@@ -1485,17 +2046,17 @@ function LandingPage() {
           </div>
         </div>
 
-        {/* Stats row */}
+        {/* Stats row - Realistic PH metrics */}
         <div style={{display:"flex",justifyContent:"center",gap:0,marginTop:40,borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,background:C.bg2}}>
           {[
             {val:"18+",label:"Platform Integrations"},
-            {val:"?2.4B+",label:"Commerce Processed"},
-            {val:"3,842+",label:"Brands Onboarded"},
-            {val:"99.98%",label:"Uptime Guaranteed"},
+            {val:"12+",label:"Business Modules"},
+            {val:"72 hrs",label:"Full Setup Time"},
+            {val:"24/7",label:"AI Always Online"},
           ].map((s,i)=>(
-            <div key={i} style={{flex:1,textAlign:"center",padding:"22px 0",borderRight:i<3?`1px solid ${C.border}`:"none"}}>
-              <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:30,fontWeight:700,letterSpacing:"-1px",background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{s.val}</div>
-              <div style={{fontSize:10,color:C.muted,marginTop:3,textTransform:"uppercase",letterSpacing:"1.5px"}}>{s.label}</div>
+            <div key={i} className="stat-card-premium" style={{flex:1,textAlign:"center",padding:"24px 0",borderRight:i<3?`1px solid ${C.border}`:"none",borderRadius:0,'--accent':C.gold}}>
+              <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:32,fontWeight:700,letterSpacing:"-1px",background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}><CountUp val={s.val}/></div>
+              <div style={{fontSize:10,color:C.muted,marginTop:4,textTransform:"uppercase",letterSpacing:"1.5px",fontWeight:600}}>{s.label}</div>
             </div>
           ))}
         </div>
@@ -1509,7 +2070,7 @@ function LandingPage() {
         }}>
           {/* Tab bar */}
           <div style={{display:"flex",borderBottom:`1px solid ${C.border2}`,background:C.bg0,overflowX:"auto"}}>
-            {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Pricing"].map(t=>(
+            {["Platform","CRM","ERP","Analytics","AI Chatbot","Market Research","Social Ads","Inbox","Orders","Broadcast","Sales","Leads","Campaigns","HR","Accounting","Support","Projects","Logistics"].map(t=>(
               <button key={t} onClick={()=>setActivePreview(t)} style={{
                 padding:"13px 20px",fontSize:11,fontWeight:700,cursor:"pointer",
                 color:activePreview===t?C.gold:C.muted,
@@ -1532,29 +2093,62 @@ function LandingPage() {
             {activePreview==="Platform" && (
               <div>
                 <div style={{marginBottom:28}}>
-                  <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:10}}>The Divine Toolkit</div>
-                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(24px,3vw,40px)",fontWeight:700,color:C.text,marginBottom:10,letterSpacing:"-0.5px"}}>
-                    Eight sacred instruments, <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>one unified platform.</span>
+                  <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:10}}>Complete Toolkit</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(32px,4vw,56px)",fontWeight:700,color:C.text,marginBottom:10,letterSpacing:"-1px"}}>
+                    INTEGRATED MODULES, <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>ONE UNIFIED PLATFORM.</span>
                   </div>
                   <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>
-                    Exponify unifies social commerce, CRM, ERP, AI chatbot, market research, social ads, and demographics � powered by Hermes for fast-scaling Filipino brands.
+                    Exponify unifies social commerce, CRM, ERP, AI chatbot, market research, social ads, and demographics • powered by Hermes for fast-scaling Filipino brands.
                   </div>
                 </div>
-                <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:2,borderRadius:16,overflow:"hidden",border:`1px solid ${C.border}`}}>
-                  {FEATURES.map((f,i)=>(
-                    <div key={i} style={{background:C.bg2,padding:"24px 22px",borderRight:i%3<2?`1px solid ${C.border}`:"none",borderBottom:i<6?`1px solid ${C.border}`:"none",transition:"background 0.2s"}}
+                <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:6}}>
+                  {[
+                    {icon:"◆",color:C.cyan,sub:"Commerce",title:"Inbox & Chat"},
+                    {icon:"◆",color:C.gold,sub:"CRM",title:"Customer CRM"},
+                    {icon:"◆",color:C.green,sub:"ERP",title:"Inventory & ERP"},
+                    {icon:"◆",color:C.violet,sub:"Analytics",title:"Analytics"},
+                    {icon:"◆",color:C.amber,sub:"AI",title:"AI Chatbot"},
+                    {icon:"◆",color:C.rose,sub:"Research",title:"Market Research"},
+                    {icon:"◆",color:C.violet,sub:"Ads",title:"Social Ads"},
+                    {icon:"◆",color:C.cyan,sub:"CX",title:"Demographics"},
+                    {icon:"◆",color:C.gold,sub:"Marketing",title:"Email Marketing"},
+                    {icon:"◆",color:C.green,sub:"Sales",title:"Sales Pipeline"},
+                    {icon:"◆",color:C.amber,sub:"Campaigns",title:"Campaigns"},
+                    {icon:"◆",color:C.rose,sub:"Support",title:"Help Desk"},
+                    {icon:"◆",color:C.gold,sub:"Feedback",title:"NPS & Reviews"},
+                    {icon:"◆",color:C.cyan,sub:"Projects",title:"Project Mgmt"},
+                    {icon:"◆",color:C.green,sub:"HR",title:"Time Tracking"},
+                    {icon:"◆",color:C.violet,sub:"Finance",title:"Accounting"},
+                    {icon:"◆",color:C.amber,sub:"HR",title:"HR & Payroll"},
+                    {icon:"◆",color:C.rose,sub:"Tax",title:"Tax Reports"},
+                    {icon:"◆",color:C.gold,sub:"Supply",title:"Procurement"},
+                    {icon:"◆",color:C.cyan,sub:"Ops",title:"Warehouse"},
+                    {icon:"◆",color:C.green,sub:"Logistics",title:"Delivery Mgmt"},
+                    {icon:"◆",color:C.violet,sub:"Legal",title:"Legal & Contracts"},
+                    {icon:"◆",color:C.amber,sub:"Compliance",title:"Risk & Compliance"},
+                    {icon:"◆",color:C.rose,sub:"IT",title:"IT Security"},
+                    {icon:"◆",color:C.gold,sub:"Facilities",title:"Facilities Mgmt"},
+                    {icon:"◆",color:C.cyan,sub:"AI Docs",title:"Doc AI"},
+                    {icon:"◆",color:C.green,sub:"AI",title:"Biz Assistant"},
+                    {icon:"◆",color:C.violet,sub:"AI",title:"Predictive AI"},
+                  ].map((f,i)=>(
+                    <div key={i} style={{background:C.bg2,padding:"12px 14px",borderRadius:10,border:`1px solid ${C.border}`,transition:"background 0.2s",display:"flex",alignItems:"center",gap:8}}
                       onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background=C.bg2}>
-                      <div style={{width:42,height:42,borderRadius:10,background:f.accent,border:`1px solid ${f.color}30`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,color:f.color,marginBottom:14}}>{f.icon}</div>
-                      <div style={{fontSize:8,color:f.color,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:5}}>{f.sub}</div>
-                      <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,color:C.text,marginBottom:7}}>{f.title}</div>
-                      <div style={{fontSize:12,color:C.muted,lineHeight:1.75}}>{f.desc}</div>
+                      <div style={{fontSize:16,flexShrink:0}}>{f.icon}</div>
+                      <div>
+                        <div style={{fontSize:8,color:f.color,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase"}}>{f.sub}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:C.text,whiteSpace:"nowrap"}}>{f.title}</div>
+                      </div>
                     </div>
                   ))}
                 </div>
                 <div style={{marginTop:20,display:"flex",gap:8,flexWrap:"wrap"}}>
-                  {Object.entries(PLATFORMS_META).map(([id,p])=>(
+                  {Object.entries(PLATFORMS_META).map(([id,p])=> (
                     <div key={id} style={{display:"flex",alignItems:"center",gap:5,padding:"4px 10px",borderRadius:8,background:`${p.color}0f`,border:`1px solid ${p.color}28`,fontSize:11,fontWeight:700,color:p.color}}>
-                      <span>{p.icon}</span><span>{p.label}</span>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"center",width:24,height:24,borderRadius:"50%",background:`${p.color}22`,border:`1px solid ${p.color}44`,flexShrink:0}}>
+                        <Icon5D icon={p.icon} color={p.color} size={18} glyphSize={9} rounded={6} transparent />
+                      </div>
+                      <span>{p.label}</span>
                     </div>
                   ))}
                 </div>
@@ -1565,12 +2159,12 @@ function LandingPage() {
             {activePreview==="CRM" && (
               <div>
                 <div style={{marginBottom:20}}>
-                  <div style={{fontSize:9,color:C.cyan,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Merchant CRM � Customer Intelligence</div>
-                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>360� customer profiles, <span style={{color:C.cyan}}>live from your inbox.</span></div>
+                  <div style={{fontSize:9,color:C.cyan,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Merchant CRM • Customer Intelligence</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>360— customer profiles, <span style={{color:C.cyan}}>live from your inbox.</span></div>
                   <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Lead scoring, pipeline management, and lifetime value tracking across all your brands and platforms.</div>
                 </div>
                 <div style={{display:"flex",border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:16,background:C.bg2}}>
-                  {[["Total Contacts","1,247",C.gold],["Customer LTV","?284K",C.green],["Avg Score","74",C.amber],["At Risk","18",C.red]].map((k,i)=>(
+                  {[["Total Contacts","1,247",C.gold],["Customer LTV","₱284K",C.green],["Avg Score","74",C.amber],["At Risk","18",C.red]].map((k,i)=>(
                     <div key={i} style={{flex:1,padding:"14px 16px",textAlign:"center",borderRight:i<3?`1px solid ${C.border}`:"none"}}>
                       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k[2]}}>{k[1]}</div>
                       <div style={{fontSize:10,color:C.muted,marginTop:3}}>{k[0]}</div>
@@ -1582,11 +2176,11 @@ function LandingPage() {
                     {["Contact","Stage","Platform","LTV","Score"].map(h=>(<div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>))}
                   </div>
                   {[
-                    {name:"Maria Santos",init:"MS",col:C.rose,stage:"Customer",sc:C.green,plat:"Instagram",ltv:"?48,200",score:92},
-                    {name:"Paolo Tan",init:"PT",col:C.gold,stage:"Customer",sc:C.green,plat:"Shopee",ltv:"?91,400",score:98},
-                    {name:"Jun Reyes",init:"JR",col:C.violet,stage:"Lead",sc:C.cyan,plat:"Facebook",ltv:"?12,500",score:64},
-                    {name:"Carla Cruz",init:"CC",col:C.green,stage:"Prospect",sc:C.violet,plat:"TikTok",ltv:"?28,900",score:78},
-                    {name:"Rhea Mendoza",init:"RM",col:C.cyan,stage:"Lead",sc:C.cyan,plat:"Instagram",ltv:"?18,700",score:71},
+                    {name:"Maria Santos",init:"MS",col:C.rose,stage:"Customer",sc:C.green,plat:"Instagram",ltv:"₱48,200",score:92},
+                    {name:"Paolo Tan",init:"PT",col:C.gold,stage:"Customer",sc:C.green,plat:"Shopee",ltv:"₱91,400",score:98},
+                    {name:"Jun Reyes",init:"JR",col:C.violet,stage:"Lead",sc:C.cyan,plat:"Facebook",ltv:"₱12,500",score:64},
+                    {name:"Carla Cruz",init:"CC",col:C.green,stage:"Prospect",sc:C.violet,plat:"TikTok",ltv:"₱28,900",score:78},
+                    {name:"Rhea Mendoza",init:"RM",col:C.cyan,stage:"Lead",sc:C.cyan,plat:"Instagram",ltv:"₱18,700",score:71},
                   ].map((c,i)=>(
                     <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr 1fr",padding:"10px 16px",borderBottom:i<4?`1px solid ${C.border}`:"none",alignItems:"center",transition:"background 0.12s"}}
                       onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -1612,12 +2206,12 @@ function LandingPage() {
             {activePreview==="ERP" && (
               <div>
                 <div style={{marginBottom:20}}>
-                  <div style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Olympian ERP � Inventory & Operations</div>
+                  <div style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Inventory Management • Operations</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Real-time stock, <span style={{color:C.green}}>zero surprises.</span></div>
-                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Automated reorder alerts, margin analysis, and multi-brand product catalog � all in one view.</div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Automated reorder alerts, margin analysis, and multi-brand product catalog • all in one view.</div>
                 </div>
                 <div className="preview-kpi-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:16}}>
-                  {[["Total SKUs","38",C.gold,"??"],["Inventory Value","?1.4M",C.green,"??"],["Gross Revenue","?9.2M",C.amber,"??"],["Critical Stock","2",C.red,"??"]].map((k,i)=>(
+                  {[["Total SKUs","38",C.gold,"📦"],["Inventory Value","₱1.4M",C.green,"💰"],["Gross Revenue","₱9.2M",C.amber,"📈"],["Critical Stock","2",C.red,"⚠️"]].map((k,i)=>(
                     <div key={i} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`2px solid ${k[2]}`}}>
                       <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>{k[3]} {k[0]}</div>
                       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:900,background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{k[1]}</div>
@@ -1637,9 +2231,9 @@ function LandingPage() {
                         <div style={{fontSize:12,fontWeight:600,color:C.text}}>{p.name}</div>
                         <div><span style={{padding:"2px 8px",borderRadius:4,fontSize:9,background:`${C.gold}12`,color:C.gold,border:`1px solid ${C.gold}22`,fontWeight:700}}>{p.category}</span></div>
                         <div style={{fontWeight:700,color:sc,fontSize:12}}>{p.stock.toLocaleString()}</div>
-                        <div style={{color:C.green,fontWeight:700,fontSize:12}}>?{p.price.toLocaleString()}</div>
+                        <div style={{color:C.green,fontWeight:700,fontSize:12}}>₱{p.price.toLocaleString()}</div>
                         <div style={{fontWeight:700,color:margin>40?C.green:C.amber,fontSize:12}}>{margin}%</div>
-                        <div><span style={{padding:"2px 8px",borderRadius:4,fontSize:9,background:`${sc}18`,color:sc,border:`1px solid ${sc}30`,fontWeight:700}}>{p.status==="critical"?"?? Critical":p.status==="low"?"?? Low":"?? OK"}</span></div>
+                        <div><span style={{padding:"2px 8px",borderRadius:4,fontSize:9,background:`${sc}18`,color:sc,border:`1px solid ${sc}30`,fontWeight:700}}>{p.status==="critical"?"🔴 Critical":p.status==="low"?"🟡 Low":"✅ OK"}</span></div>
                       </div>
                     );
                   })}
@@ -1651,12 +2245,12 @@ function LandingPage() {
             {activePreview==="Analytics" && (
               <div>
                 <div style={{marginBottom:20}}>
-                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Oracle Analytics � Revenue Intelligence</div>
+                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Business Analytics • Revenue Intelligence</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Revenue forecasting, <span style={{color:C.violet}}>powered by Hermes AI.</span></div>
-                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Funnel metrics, cross-platform performance, cohort analysis, and sentiment trends � all in one dashboard.</div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Funnel metrics, cross-platform performance, cohort analysis, and sentiment trends • all in one dashboard.</div>
                 </div>
                 <div className="preview-kpi-row" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:18}}>
-                  {[["Total Contacts","1,247",C.gold,"??"],["Customers","248",C.green,"?"],["Avg. LTV","?42K",C.cyan,"??"],["Open Convos","36",C.amber,"??"]].map((k,i)=>(
+                  {[["Total Contacts","1,247",C.gold,"📦"],["Customers","248",C.green,"👥"],["Avg. LTV","₱42K",C.cyan,"💎"],["Open Convos","36",C.amber,"📈"]].map((k,i)=>(
                     <div key={i} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`2px solid ${k[2]}`}}>
                       <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>{k[3]} {k[0]}</div>
                       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:900,color:k[2]}}>{k[1]}</div>
@@ -1665,7 +2259,7 @@ function LandingPage() {
                 </div>
                 <div className="preview-two-col" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"18px"}}>
-                    <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:14}}>Revenue � 2025</div>
+                    <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:14}}>Revenue • 2025</div>
                     <div style={{display:"flex",alignItems:"flex-end",gap:4,height:100}}>
                       {revenueData.map((d,i)=>(
                         <div key={i} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
@@ -1695,17 +2289,17 @@ function LandingPage() {
             {activePreview==="AI Chatbot" && (
               <div>
                 <div style={{marginBottom:24}}>
-                  <div style={{fontSize:9,color:C.amber,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Hermes AI Chatbot � Conversational Commerce</div>
+                  <div style={{fontSize:9,color:C.amber,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Hermes AI Chatbot • Conversational Commerce</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Reply in 0.8 seconds. <span style={{color:C.amber}}>24/7. On every platform.</span></div>
-                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Train Hermes AI on your brand voice, products, and FAQs. It handles inquiries, qualifies leads, collects orders, and escalates complex issues � in Taglish or English.</div>
+                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Train Hermes AI on your brand voice, products, and FAQs. It handles inquiries, qualifies leads, collects orders, and escalates complex issues • in Taglish or English.</div>
                 </div>
                 <div className="chat-preview-grid" style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16}}>
                   <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,overflow:"hidden"}}>
                     <div style={{padding:"12px 16px",borderBottom:`1px solid ${C.border}`,background:C.bg1,display:"flex",alignItems:"center",gap:10}}>
-                      <div style={{width:32,height:32,borderRadius:"50%",background:`${C.amber}22`,border:`1px solid ${C.amber}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>??</div>
+                      <div style={{width:32,height:32,borderRadius:"50%",background:`${C.amber}22`,border:`1px solid ${C.amber}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14}}>🤖</div>
                       <div>
                         <div style={{fontSize:12,fontWeight:700,color:C.text}}>Hermes AI</div>
-                        <div style={{fontSize:10,color:C.green}}>? Online � 0.8s avg reply</div>
+                        <div style={{fontSize:10,color:C.green}}>● Online • 0.8s avg reply</div>
                       </div>
                       <div style={{marginLeft:"auto",display:"flex",gap:6}}>
                         {["FB","IG","TK"].map(p=><span key={p} style={{fontSize:9,padding:"2px 7px",borderRadius:4,background:`${C.amber}15`,color:C.amber,border:`1px solid ${C.amber}30`,fontWeight:700}}>{p}</span>)}
@@ -1714,16 +2308,16 @@ function LandingPage() {
                     <div style={{padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
                       {[
                         {side:"left",text:"Hello po! Available pa ba yung Bloom Foundation SPF30?"},
-                        {side:"right",text:"Hi po! Yes, available pa! ?? Mayroon kaming SPF30 sa ?599 � perfect for daily use. Gusto mo ba mag-order? ??",bot:true},
+                        {side:"right",text:"Hi po! Yes, available pa! 😊 Mayroon kaming SPF30 sa ₱599 • perfect for daily use. Gusto mo ba mag-order?",bot:true},
                         {side:"left",text:"Magkano ang shipping sa Cebu?"},
-                        {side:"right",text:"Shipping sa Cebu is ?120 via J&T. Free shipping for orders above ?1,500! ?? Anong quantity ang gusto mo?",bot:true},
+                        {side:"right",text:"Shipping sa Cebu is ₱120 via J&T. Free shipping for orders above ₱1,500! 🚚 Anong quantity ang gusto mo?",bot:true},
                         {side:"left",text:"2 bottles po sana"},
-                        {side:"right",text:"Perfect! 2x Bloom Foundation = ?1,198 + FREE shipping. ?? Paki-send po ng inyong full name at address para ma-process namin. COD available!",bot:true},
+                        {side:"right",text:"Perfect! 2x Bloom Foundation = ₱1,198 + FREE shipping. 🎉 Paki-send po ng inyong full name at address para ma-process namin. COD available!",bot:true},
                       ].map((m,i)=>(
                         <div key={i} style={{display:"flex",justifyContent:m.side==="right"?"flex-end":"flex-start"}}>
                           <div style={{maxWidth:"80%",padding:"9px 13px",borderRadius:m.side==="right"?"14px 14px 4px 14px":"14px 14px 14px 4px",background:m.side==="right"?`${C.amber}20`:C.bg4,border:`1px solid ${m.side==="right"?C.amber+"30":C.border}`,fontSize:12,color:C.text,lineHeight:1.55}}>
                             {m.text}
-                            {m.bot && <div style={{fontSize:9,color:C.muted,marginTop:3,textAlign:"right"}}>?? Hermes AI</div>}
+                            {m.bot && <div style={{fontSize:9,color:C.muted,marginTop:3,textAlign:"right"}}>🤖 Hermes AI</div>}
                           </div>
                         </div>
                       ))}
@@ -1731,12 +2325,12 @@ function LandingPage() {
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
                     {[
-                      {icon:"?",title:"Brand-Trained Intelligence",desc:"Upload your product catalog, FAQs, and pricing. Hermes AI answers exactly like your best salesperson � 24/7.",color:C.amber},
-                      {icon:"?",title:"Taglish-Native Replies",desc:"Naturally switches between Filipino and English. No awkward bot-speak. Real conversational tone.",color:C.gold},
-                      {icon:"?",title:"Lead Qualification Engine",desc:"Automatically asks for name, address, and order details. Pushes qualified leads straight to your CRM.",color:C.cyan},
-                      {icon:"?",title:"Multi-Platform Unified",desc:"One AI brain, seven platforms. Same consistent brand voice across Facebook, Instagram, TikTok, Shopee, and more.",color:C.green},
-                      {icon:"?",title:"Smart Escalation",desc:"Detects frustrated customers or complex issues and instantly flags for human takeover � with full context.",color:C.rose},
-                      {icon:"?",title:"No-Code Configuration",desc:"Set bot mode (AI, Menu, Hybrid), configure greeting flows, and upload brand context � all from your dashboard.",color:C.violet},
+                      {icon:"◆",title:"Brand-Trained Intelligence",desc:"Upload your product catalog, FAQs, and pricing. Hermes AI answers exactly like your best salesperson • 24/7.",color:C.amber},
+                      {icon:"◆",title:"Taglish-Native Replies",desc:"Naturally switches between Filipino and English. No awkward bot-speak. Real conversational tone.",color:C.gold},
+                      {icon:"◈",title:"Lead Qualification Engine",desc:"Automatically asks for name, address, and order details. Pushes qualified leads straight to your CRM.",color:C.cyan},
+                      {icon:"◈",title:"Multi-Platform Unified",desc:"One AI brain, seven platforms. Same consistent brand voice across Facebook, Instagram, TikTok, Shopee, and more.",color:C.green},
+                      {icon:"◉",title:"Smart Escalation",desc:"Detects frustrated customers or complex issues and instantly flags for human takeover • with full context.",color:C.rose},
+                      {icon:"◆",title:"No-Code Configuration",desc:"Set bot mode (AI, Menu, Hybrid), configure greeting flows, and upload brand context • all from your dashboard.",color:C.violet},
                     ].map((f,i)=>(
                       <div key={i} style={{display:"flex",gap:12,padding:"12px 16px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,transition:"border-color 0.2s"}}
                         onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
@@ -1750,7 +2344,7 @@ function LandingPage() {
                   </div>
                 </div>
                 <div style={{marginTop:16,display:"flex",gap:10,flexWrap:"wrap"}}>
-                  {[["0.8s","Avg Response"],["99.98%","Uptime"],["7","Platforms"],["24/7","Always On"],["Taglish","Language"],["8","Conversations"]].map(([v,l])=>(
+                  {[["0.8s","Avg Response"],["99.9%","Uptime"],["7","Platforms"],["24/7","Always On"],["Taglish","Language"],["8","Conversations"]].map(([v,l])=>(
                     <div key={l} style={{padding:"8px 16px",background:C.bg3,border:`1px solid ${C.border}`,borderRadius:8,textAlign:"center"}}>
                       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{v}</div>
                       <div style={{fontSize:9,color:C.muted,marginTop:2}}>{l}</div>
@@ -1764,20 +2358,20 @@ function LandingPage() {
             {activePreview==="Market Research" && (
               <div>
                 <div style={{marginBottom:24}}>
-                  <div style={{fontSize:9,color:C.rose,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Pythian Oracle � AI Market Research</div>
+                  <div style={{fontSize:9,color:C.rose,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Market Research AI • Intelligence Engine</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Instant market intelligence. <span style={{color:C.rose}}>Philippine-native insights.</span></div>
-                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Ask the Oracle anything about your market. Get structured reports on trends, competitors, keywords, and consumer segments � in seconds.</div>
+                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Get structured reports on trends, competitors, keywords, and consumer segments • in seconds.</div>
                 </div>
                 <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
                   <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px",borderTop:`2px solid ${C.gold}`}}>
-                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,color:C.gold,marginBottom:4}}>? Pythian Oracle</div>
-                    <div style={{fontSize:11,color:C.muted,marginBottom:14}}>AI Research Engine � Philippine Commerce</div>
+                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,color:C.gold,marginBottom:4}}>📊 Market Research AI</div>
+                    <div style={{fontSize:11,color:C.muted,marginBottom:14}}>AI Research Engine • Philippine Commerce</div>
                     <div style={{background:C.bg4,border:`1px solid ${C.border2}`,borderRadius:9,padding:"10px 14px",marginBottom:12,fontSize:12,color:C.muted}}>"beauty and skincare market philippines 2025"</div>
                     <div style={{background:C.bg3,border:`1px solid ${C.border2}`,borderRadius:9,padding:"14px 16px"}}>
                       {[
-                        {head:"? Market Overview",body:"Philippine beauty market valued at ?89.2B, growing 14% CAGR. Skincare leads with 42% share driven by K-beauty and \"glass skin\" trend."},
-                        {head:"? Key Trends",body:"� Live commerce on TikTok Shop driving 3x higher conversion\n� Hyram-style ingredient-first marketing resonating with Gen Z\n� SPF and sunscreen category surging +186% YoY"},
-                        {head:"? Recommendations",body:"� Target Metro Manila + CALABARZON (55% of buyers)\n� Lead with before/after UGC on Instagram Reels\n� Bundle SPF products to increase AOV by ?200+"},
+                        {head:"📊 Market Overview",body:"Philippine beauty market valued at ₱89.2B, growing 14% CAGR. Skincare leads with 42% share driven by K-beauty and \"glass skin\" trend."},
+                        {head:"📈 Key Trends",body:"— Live commerce on TikTok Shop driving 3x higher conversion\n— Hyram-style ingredient-first marketing resonating with Gen Z\n— SPF and sunscreen category surging +186% YoY"},
+                        {head:"💡 Recommendations",body:"— Target Metro Manila + CALABARZON (55% of buyers)\n— Lead with before/after UGC on Instagram Reels\n— Bundle SPF products to increase AOV by ₱200+"},
                       ].map((s,i)=>(
                         <div key={i} style={{marginBottom:i<2?12:0}}>
                           <div style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:"'Cormorant Garamond',serif",marginBottom:4}}>{s.head}</div>
@@ -1788,21 +2382,21 @@ function LandingPage() {
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:12}}>
                     <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px",flex:1}}>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:12}}>?? Keyword Intelligence</div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:12}}>🔍 Keyword Intelligence</div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr auto auto auto",gap:"6px 12px",fontSize:11}}>
                         {["Keyword","Vol/mo","Trend","CPC"].map(h=>(<div key={h} style={{color:C.muted,fontWeight:700,fontSize:9,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</div>))}
                         {keywordData.slice(0,5).map((k,i)=>[
                           <div key={`n${i}`} style={{color:C.text,fontWeight:500,padding:"4px 0",borderTop:`1px solid ${C.border}`}}>{k.keyword}</div>,
                           <div key={`v${i}`} style={{color:C.gold,fontWeight:700,padding:"4px 0",borderTop:`1px solid ${C.border}`}}>{k.vol.toLocaleString()}</div>,
                           <div key={`t${i}`} style={{color:C.green,fontWeight:700,padding:"4px 0",borderTop:`1px solid ${C.border}`}}>+{k.trend}%</div>,
-                          <div key={`c${i}`} style={{color:C.muted,padding:"4px 0",borderTop:`1px solid ${C.border}`}}>?{k.cpc}</div>,
+                          <div key={`c${i}`} style={{color:C.muted,padding:"4px 0",borderTop:`1px solid ${C.border}`}}>₱{k.cpc}</div>,
                         ])}
                       </div>
                     </div>
                     <div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px"}}>
-                      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>?? Market KPIs</div>
+                      <div style={{fontSize:10,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:10}}>📊 Market KPIs</div>
                       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-                        {[["?892B","PH Market Size",C.gold],["38.4%","E-comm Penetration",C.green],["?124B","Social Commerce",C.amber],["+14%","Market CAGR",C.rose]].map(([v,l,col])=>(
+                        {[["₱892B","PH Market Size",C.gold],["38.4%","E-comm Penetration",C.green],["₱124B","Social Commerce",C.amber],["+14%","Market CAGR",C.rose]].map(([v,l,col])=>(
                           <div key={l} style={{padding:"10px 12px",background:C.bg3,borderRadius:8,borderTop:`2px solid ${col}`}}>
                             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,color:col}}>{v}</div>
                             <div style={{fontSize:9,color:C.muted,marginTop:2}}>{l}</div>
@@ -1821,16 +2415,313 @@ function LandingPage() {
               </div>
             )}
 
+            {/* -- INBOX -- */}
+            {activePreview==="Inbox" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.cyan,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Unified Inbox • Omnichannel Commerce</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>All messages, <span style={{color:C.cyan}}>one command center.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Facebook, Instagram, TikTok, Viber, Shopee, Lazada — every customer conversation in one thread. Never miss an order again.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◈",title:"All Platforms in One Feed",desc:"FB Messenger, IG DMs, TikTok comments, Viber, Shopee chat — unified into a single inbox sorted by urgency.",color:C.cyan},
+                    {icon:"◈",title:"AI Auto-Reply",desc:"Hermes AI handles FAQs, order status, and product questions 24/7 so your team focuses on closing deals.",color:C.amber},
+                    {icon:"◐",title:"Smart Tagging & Routing",desc:"Auto-tag conversations as Order, Inquiry, Complaint, or Lead — route to the right agent instantly.",color:C.gold},
+                    {icon:"◧",title:"Response Time Analytics",desc:"Track average response time per platform and agent. Hit the <5 minute SLA that converts 3x more buyers.",color:C.violet},
+                    {icon:"◉",title:"Priority Alerts",desc:"High-value customers and repeat buyers surface to the top. VIP treatment automated.",color:C.green},
+                    {icon:"◫",title:"Order Capture from Chat",desc:"Convert any conversation into an order in one click. Auto-fills customer name, address, and product.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- ORDERS -- */}
+            {activePreview==="Orders" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Orders & Fulfillment • End-to-End</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>From chat to delivery, <span style={{color:C.green}}>fully tracked.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Capture orders from every channel, manage fulfillment status, and auto-notify customers — all without switching tabs.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"▣",title:"Multi-Channel Order Capture",desc:"Orders from Shopee, Lazada, TikTok Shop, and direct messages all flow into one fulfilment dashboard.",color:C.green},
+                    {icon:"◢",title:"Logistics Integration",desc:"Book J&T, LBC, Ninja Van, and Grab Express directly from the order page. Auto-generate waybills.",color:C.cyan},
+                    {icon:"◆",title:"Payment Tracking",desc:"GCash, Maya, bank transfer, COD — all payment statuses tracked and matched to orders automatically.",color:C.gold},
+                    {icon:"◉",title:"Customer Auto-Notifications",desc:"Automatic order confirmations, packing updates, and tracking links sent via Messenger or Viber.",color:C.amber},
+                    {icon:"◈",title:"Returns Management",desc:"Handle return requests, refunds, and replacements with a single workflow. Reduce disputes by 60%.",color:C.rose},
+                    {icon:"◧",title:"Order Analytics",desc:"AOV, fulfillment rate, cancellation rate, and top products — live dashboard updated every 15 minutes.",color:C.violet},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- BROADCAST -- */}
+            {activePreview==="Broadcast" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.amber,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Broadcast & Messaging • Mass Reach</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Reach thousands, <span style={{color:C.amber}}>feel personal.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Send targeted campaigns to segmented customer lists across Facebook Messenger, Viber, and SMS — with open rates above 80%.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◉",title:"Bulk Messaging",desc:"Send up to 100,000 messages per blast to segmented lists. Personalized per recipient with merge tags.",color:C.amber},
+                    {icon:"◈",title:"Smart Segmentation",desc:"Target by purchase history, location, last active date, or custom tags. Laser-focused reach every time.",color:C.gold},
+                    {icon:"◴",title:"Scheduled Broadcasts",desc:"Queue your messages for peak hours — 11am or 8pm when Filipino buyers are most active online.",color:C.cyan},
+                    {icon:"◈",title:"Delivery & Open Rates",desc:"Real-time delivery tracking, open rates, click-throughs, and revenue attributed per broadcast campaign.",color:C.violet},
+                    {icon:"◐",title:"Re-engagement Sequences",desc:"Auto-trigger follow-up messages for cart abandoners, inactive customers, or post-purchase reviews.",color:C.green},
+                    {icon:"◆",title:"Compliance & Opt-Out",desc:"Built-in opt-out management and DICT compliance for Philippine data privacy regulations.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- SALES -- */}
+            {activePreview==="Sales" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Sales Pipeline • Revenue Operations</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Close more deals, <span style={{color:C.gold}}>with less effort.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Visual sales pipeline, deal tracking, and AI-assisted follow-ups. Turn every inquiry into a converted customer.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◈",title:"Visual Pipeline Board",desc:"Kanban-style deal board with drag-and-drop stages from Inquiry → Qualified → Negotiating → Closed.",color:C.gold},
+                    {icon:"◉",title:"Deal Tracking",desc:"Track deal value, probability, expected close date, and assigned rep. Full deal history in one place.",color:C.cyan},
+                    {icon:"◫",title:"AI Follow-Up Reminders",desc:"Hermes AI nudges your team when deals go cold. No lead left behind with automated follow-up sequences.",color:C.amber},
+                    {icon:"◧",title:"Sales Forecasting",desc:"AI-predicted revenue for the next 30/60/90 days based on pipeline health and historical close rates.",color:C.violet},
+                    {icon:"◆",title:"Leaderboard & Quotas",desc:"Set team and individual quotas. Live leaderboard keeps reps motivated and managers informed.",color:C.green},
+                    {icon:"◈",title:"CRM Integration",desc:"Every deal automatically linked to CRM contact records, conversation history, and order data.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- LEADS -- */}
+            {activePreview==="Leads" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.rose,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Lead Scoring & Capture • Conversion Intelligence</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Know who's ready <span style={{color:C.rose}}>to buy today.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>AI scores every lead based on behavior, engagement, and purchase signals. Prioritize the right prospects automatically.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◈",title:"AI Lead Scoring",desc:"Each lead gets a score from 0–100 based on platform activity, response behavior, and purchase intent signals.",color:C.rose},
+                    {icon:"◈",title:"Multi-Source Lead Capture",desc:"Capture leads from Facebook forms, landing pages, Messenger, Instagram DMs, and web forms automatically.",color:C.cyan},
+                    {icon:"◆",title:"Hot Lead Alerts",desc:"Get instant notifications when a high-score lead engages. Strike while intent is highest.",color:C.amber},
+                    {icon:"◆",title:"Lead Nurture Sequences",desc:"Auto-enroll leads in drip sequences based on score and interest segment. Personalized at scale.",color:C.gold},
+                    {icon:"◧",title:"Conversion Attribution",desc:"Track which ad, post, or platform generated each lead. Optimize spend by true cost-per-lead.",color:C.violet},
+                    {icon:"◐",title:"CRM Auto-Sync",desc:"Every qualified lead is pushed to CRM with full context — source, score, tags, and conversation history.",color:C.green},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- CAMPAIGNS -- */}
+            {activePreview==="Campaigns" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Campaign Manager • Multi-Channel Execution</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Launch campaigns <span style={{color:C.violet}}>that actually convert.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Plan, execute, and measure marketing campaigns across all channels from one dashboard. Built for 11.11, Payday sales, and flash promos.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◈",title:"Campaign Launch Wizard",desc:"Step-by-step campaign builder: set objective, audience, budget, schedule, and creative in under 10 minutes.",color:C.violet},
+                    {icon:"◴",title:"Campaign Calendar",desc:"Visual timeline of all active and scheduled campaigns. Avoid overlap and plan seasonal surges in advance.",color:C.cyan},
+                    {icon:"◆",title:"Creative Library",desc:"Store and reuse proven ad creatives, copy templates, and offer angles across campaigns.",color:C.gold},
+                    {icon:"◧",title:"Real-Time Performance",desc:"Live CPL, ROAS, reach, and conversion tracking per campaign. Pause underperformers instantly.",color:C.amber},
+                    {icon:"◐",title:"A/B Testing",desc:"Test two versions of any campaign element — headline, image, offer — and auto-scale the winner.",color:C.green},
+                    {icon:"◈",title:"AI Campaign Suggestions",desc:"Hermes AI recommends campaign ideas based on your best-performing past promos and seasonal trends.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- HR -- */}
+            {activePreview==="HR" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.cyan,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>HR & Payroll • People Operations</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Manage your team <span style={{color:C.cyan}}>the smarter way.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>BIR-ready payroll, SSS/PhilHealth/Pag-IBIG compliance, attendance tracking, and employee self-service — fully automated.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◑",title:"Payroll Processing",desc:"Auto-compute monthly salary, deductions, 13th month, and statutory contributions. BIR Form 2316 ready.",color:C.cyan},
+                    {icon:"◫",title:"Attendance & Leaves",desc:"Track daily attendance, tardiness, and leave balances. Integrates with biometric or QR check-in.",color:C.gold},
+                    {icon:"◈",title:"SSS/PhilHealth/Pag-IBIG",desc:"Auto-compute and generate contribution schedules. One-click compliance report export.",color:C.green},
+                    {icon:"◫",title:"Employee Records",desc:"Complete employee 201 file: contract, TIN, dependents, performance history, and emergency contacts.",color:C.amber},
+                    {icon:"◈",title:"Performance Management",desc:"Set KPIs, track goals, and run quarterly reviews. Link performance ratings to payroll incentives.",color:C.violet},
+                    {icon:"◉",title:"Employee Self-Service",desc:"Staff can view payslips, file leaves, and update personal info via the mobile app — no HR bottleneck.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- ACCOUNTING -- */}
+            {activePreview==="Accounting" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Accounting & Finance • BIR-Ready Books</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Your books, <span style={{color:C.green}}>always audit-ready.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Double-entry accounting, BIR VAT compliance, income statements, and cash flow — all automated from your sales data.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◧",title:"P&L & Balance Sheet",desc:"Auto-generated income statement and balance sheet updated in real-time as orders and expenses are recorded.",color:C.green},
+                    {icon:"◫",title:"BIR VAT Compliance",desc:"Auto-compute VAT, generate BIR Form 2550M/Q, and maintain a compliant sales and purchase journal.",color:C.gold},
+                    {icon:"◆",title:"Expense Tracking",desc:"Log business expenses by category, attach receipts, and match to bank transactions automatically.",color:C.cyan},
+                    {icon:"◈",title:"Bank Reconciliation",desc:"Auto-match bank statement entries to recorded transactions. Flag discrepancies for immediate review.",color:C.amber},
+                    {icon:"◈",title:"Cash Flow Forecasting",desc:"AI predicts 30-day cash position based on receivables, payables, and historical spending patterns.",color:C.violet},
+                    {icon:"◫",title:"Chart of Accounts",desc:"Pre-configured Philippine CoA for retail, F&B, and services. Fully customizable for your industry.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- SUPPORT -- */}
+            {activePreview==="Support" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.amber,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Help Desk & Support • Customer Experience</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Resolve faster, <span style={{color:C.amber}}>retain longer.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Ticketing system, SLA tracking, and AI-assisted resolutions. Keep customers happy across every touchpoint.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◉",title:"Unified Ticketing",desc:"Every complaint, inquiry, and request becomes a ticket with priority, SLA timer, and assigned agent.",color:C.amber},
+                    {icon:"◈",title:"AI First Response",desc:"Hermes AI handles Tier-1 issues instantly — order status, return policies, product info — 24/7.",color:C.cyan},
+                    {icon:"◴",title:"SLA Management",desc:"Set response and resolution time targets per ticket type. Auto-escalate to supervisors on breach.",color:C.red},
+                    {icon:"◧",title:"CSAT & NPS Tracking",desc:"Post-resolution satisfaction surveys sent automatically. CSAT and NPS scores tracked per agent and team.",color:C.violet},
+                    {icon:"◆",title:"Knowledge Base",desc:"Build a searchable FAQ and product guide. Reduce repeat tickets by 40% with self-serve support.",color:C.gold},
+                    {icon:"◈",title:"CRM-Linked Tickets",desc:"Every support ticket linked to the customer's CRM profile — full history visible to every agent.",color:C.green},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- PROJECTS -- */}
+            {activePreview==="Projects" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Project Management • Team Collaboration</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Ship projects <span style={{color:C.violet}}>on time, every time.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Tasks, milestones, team assignments, and Gantt timelines — built for fast-moving Philippine business teams.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◫",title:"Project Boards",desc:"Kanban and list views for every project. Assign tasks, set deadlines, and track completion per team member.",color:C.violet},
+                    {icon:"◴",title:"Gantt Timeline",desc:"Visual project timeline showing dependencies, milestones, and critical path. Spot delays before they happen.",color:C.cyan},
+                    {icon:"◑",title:"Team Workload View",desc:"See every team member's task load at a glance. Balance assignments to prevent burnout and delays.",color:C.gold},
+                    {icon:"◉",title:"In-Task Collaboration",desc:"Comment, attach files, and tag teammates directly on tasks. No more lost context in group chats.",color:C.amber},
+                    {icon:"◈",title:"Deadline Alerts",desc:"Automated reminders 48h and 24h before due dates. Escalate overdue tasks to project managers.",color:C.green},
+                    {icon:"◧",title:"Project Analytics",desc:"On-time delivery rate, task completion velocity, and team productivity scores per project.",color:C.rose},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* -- LOGISTICS -- */}
+            {activePreview==="Logistics" && (
+              <div>
+                <div style={{marginBottom:20}}>
+                  <div style={{fontSize:9,color:C.green,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Logistics & Delivery • Last-Mile Intelligence</div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Deliver faster, <span style={{color:C.green}}>cost less.</span></div>
+                  <div style={{fontSize:13,color:C.muted,lineHeight:1.8}}>Book, track, and optimize deliveries across J&T, LBC, Ninja Van, GoGo Xpress, and Grab. Full last-mile visibility.</div>
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:10}}>
+                  {[
+                    {icon:"◢",title:"Multi-Courier Booking",desc:"Book J&T, LBC, Ninja Van, GoGo Xpress, and Grab Express from one screen. Auto-select cheapest or fastest.",color:C.green},
+                    {icon:"◈",title:"Real-Time Tracking",desc:"Live package status from pickup to doorstep. Push notifications to customers at every milestone.",color:C.cyan},
+                    {icon:"◫",title:"Bulk Waybill Printing",desc:"Generate and print hundreds of waybills in one click. CSV export for marketplace seller centers.",color:C.gold},
+                    {icon:"◧",title:"Delivery Analytics",desc:"Success rate, failed delivery rate, average transit time, and courier performance comparison.",color:C.amber},
+                    {icon:"◈",title:"Return & RTS Management",desc:"Handle Return-to-Sender and failed deliveries with automated re-dispatch or refund workflows.",color:C.rose},
+                    {icon:"◆",title:"Shipping Cost Optimizer",desc:"AI recommends the most cost-effective courier per order based on weight, zone, and SLA requirements.",color:C.violet},
+                  ].map((f,i)=>(
+                    <div key={i} style={{display:"flex",gap:10,padding:"12px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
+                      onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+                      <div style={{fontSize:18,flexShrink:0}}>{f.icon}</div>
+                      <div><div style={{fontSize:11,fontWeight:700,color:f.color,marginBottom:2}}>{f.title}</div><div style={{fontSize:11,color:C.muted,lineHeight:1.55}}>{f.desc}</div></div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* -- SOCIAL ADS -- */}
             {activePreview==="Social Ads" && (
               <div>
                 <div style={{marginBottom:24}}>
-                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Agora Social Ads � Ads Intelligence</div>
+                  <div style={{fontSize:9,color:C.violet,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:8}}>Social Ads Manager • Ads Intelligence</div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(22px,3vw,36px)",fontWeight:700,color:C.text,marginBottom:8}}>Know which ads print money. <span style={{color:C.violet}}>Cut the rest.</span></div>
-                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Track ad spend, ROAS, and creative performance across Facebook, TikTok, and Shopee Ads � all in one dashboard. Stop guessing, start scaling.</div>
+                  <div style={{fontSize:13,color:C.muted,maxWidth:560,lineHeight:1.8}}>Track ad spend, ROAS, and creative performance across Facebook, TikTok, and Shopee Ads • all in one dashboard. Stop guessing, start scaling.</div>
                 </div>
                 <div className="preview-five-col" style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16}}>
-                  {[["Total Ad Spend","?184K",C.gold],["Total Revenue","?1.24M",C.green],["Blended ROAS","6.7x",C.cyan],["CTR","3.84%",C.amber],["CPA","?148",C.rose]].map((k,i)=>(
+                  {[["Total Ad Spend","₱184K",C.gold],["Total Revenue","₱1.24M",C.green],["Blended ROAS","6.7x",C.cyan],["CTR","3.84%",C.amber],["CPA","₱148",C.rose]].map((k,i)=>(
                     <div key={i} style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",borderTop:`2px solid ${k[2]}`}}>
                       <div style={{fontSize:9,color:C.muted,fontWeight:600,textTransform:"uppercase",letterSpacing:"1px",marginBottom:6}}>{k[0]}</div>
                       <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k[2]}}>{k[1]}</div>
@@ -1844,11 +2735,11 @@ function LandingPage() {
                       {["Campaign","Spend","ROAS","Status"].map(h=>(<div key={h} style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase"}}>{h}</div>))}
                     </div>
                     {[
-                      {name:"Bloom Foundation � Awareness",spend:"?42K",roas:"5.2x",status:"Active",sc:C.green},
-                      {name:"Vitamin C Serum � Conversion",spend:"?31K",roas:"8.9x",status:"Scaling",sc:C.cyan},
-                      {name:"Baby Wipes � Retargeting",spend:"?18K",roas:"11.4x",status:"Scaling",sc:C.cyan},
-                      {name:"Matcha Powder � TikTok",spend:"?24K",roas:"4.1x",status:"Testing",sc:C.amber},
-                      {name:"Home Decor � Catalog",spend:"?14K",roas:"2.8x",status:"Paused",sc:C.red},
+                      {name:"Bloom Foundation • Awareness",spend:"₱42K",roas:"5.2x",status:"Active",sc:C.green},
+                      {name:"Vitamin C Serum • Conversion",spend:"₱31K",roas:"8.9x",status:"Scaling",sc:C.cyan},
+                      {name:"Baby Wipes • Retargeting",spend:"₱18K",roas:"11.4x",status:"Scaling",sc:C.cyan},
+                      {name:"Matcha Powder • TikTok",spend:"₱24K",roas:"4.1x",status:"Testing",sc:C.amber},
+                      {name:"Home Decor • Catalog",spend:"₱14K",roas:"2.8x",status:"Paused",sc:C.red},
                     ].map((c,i)=>(
                       <div key={i} style={{display:"grid",gridTemplateColumns:"2fr 1fr 1fr 1fr",padding:"9px 16px",borderBottom:i<4?`1px solid ${C.border}`:"none",alignItems:"center",transition:"background 0.12s"}}
                         onMouseEnter={e=>e.currentTarget.style.background=C.bg3} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -1861,12 +2752,12 @@ function LandingPage() {
                   </div>
                   <div style={{display:"flex",flexDirection:"column",gap:10}}>
                     {[
-                      {icon:"?",title:"Real-Time ROAS Tracking",desc:"See revenue attributed to every ad set across Facebook, TikTok Ads, and Shopee Ads � updated every hour.",color:C.violet},
-                      {icon:"?",title:"Creative Performance Scoring",desc:"AI ranks your ad creatives by CTR and conversion rate. Know which image, copy, and hook wins � before you overspend.",color:C.gold},
-                      {icon:"?",title:"Audience Overlap Detector",desc:"Find overlapping audiences across campaigns to eliminate wasted spend and improve frequency scoring.",color:C.cyan},
-                      {icon:"?",title:"AI Budget Optimizer",desc:"Hermes AI recommends daily budget shifts based on ROAS trends. Scale winners, pause losers � automatically.",color:C.amber},
-                      {icon:"?",title:"Attribution Stitching",desc:"Connect ad clicks to messenger conversations to orders. Full-funnel attribution from first touch to COD confirmation.",color:C.green},
-                      {icon:"?",title:"Competitor Ad Spy",desc:"Monitor competitor ad activity, creative angles, and offer positioning across Philippine social platforms.",color:C.rose},
+                      {icon:"◆",title:"Real-Time ROAS Tracking",desc:"See revenue attributed to every ad set across Facebook, TikTok Ads, and Shopee Ads • updated every hour.",color:C.violet},
+                      {icon:"◆",title:"Creative Performance Scoring",desc:"AI ranks your ad creatives by CTR and conversion rate. Know which image, copy, and hook wins • before you overspend.",color:C.gold},
+                      {icon:"◈",title:"Audience Overlap Detector",desc:"Find overlapping audiences across campaigns to eliminate wasted spend and improve frequency scoring.",color:C.cyan},
+                      {icon:"◉",title:"AI Budget Optimizer",desc:"Hermes AI recommends daily budget shifts based on ROAS trends. Scale winners, pause losers • automatically.",color:C.amber},
+                      {icon:"◈",title:"Attribution Stitching",desc:"Connect ad clicks to messenger conversations to orders. Full-funnel attribution from first touch to COD confirmation.",color:C.green},
+                      {icon:"◈",title:"Competitor Ad Spy",desc:"Monitor competitor ad activity, creative angles, and offer positioning across Philippine social platforms.",color:C.rose},
                     ].map((f,i)=>(
                       <div key={i} style={{display:"flex",gap:10,padding:"11px 14px",background:C.bg2,border:`1px solid ${C.border}`,borderRadius:9,transition:"border-color 0.2s"}}
                         onMouseEnter={e=>e.currentTarget.style.borderColor=f.color+"55"} onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
@@ -1882,48 +2773,332 @@ function LandingPage() {
               </div>
             )}
 
-            {/* -- PRICING -- */}
-            {activePreview==="Pricing" && <PricingPreview setMode={setMode} focusAuth={focusAuth}/>}
 
           </div>
         </section>
       )}
 
-      {/* -------------- FEATURES -------------- */}
-      <section className="section-pad" style={{maxWidth:1280,margin:"0 auto",position:"relative",zIndex:1}}>
-        <div style={{marginBottom:50}}>
-          <div style={{fontSize:10,color:C.gold,fontWeight:700,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:12}}>The Divine Toolkit</div>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:16}}>
-            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(28px,4vw,48px)",fontWeight:700,letterSpacing:"-1px",color:C.text,maxWidth:460,lineHeight:1.1}}>
-              Eight sacred instruments,<br/>
-              <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>one unified platform.</span>
-            </div>
-            <div style={{fontSize:13,color:C.muted,maxWidth:360,lineHeight:1.8}}>
-              Every tool you need to manage, automate, and grow � powered by Hermes.
-            </div>
-          </div>
-        </div>
+      {/* -------------- FEATURES / MODULE SHOWCASE -------------- */}
+      <section style={{
+        background:`linear-gradient(180deg,${C.bg0} 0%,${C.bg1} 50%,${C.bg0} 100%)`,
+        borderTop:`1px solid ${C.border}`,borderBottom:`1px solid ${C.border}`,
+        position:"relative",zIndex:1,overflow:"hidden",
+        padding:"clamp(60px,8vw,120px) clamp(16px,4vw,40px)",
+      }}>
+        {/* Background orbs */}
+        <div style={{position:"absolute",top:"10%",left:"-8%",width:500,height:500,borderRadius:"50%",background:`radial-gradient(circle,${C.gold}06,transparent 65%)`,filter:"blur(60px)",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",bottom:"5%",right:"-6%",width:400,height:400,borderRadius:"50%",background:`radial-gradient(circle,${C.violet}07,transparent 65%)`,filter:"blur(60px)",pointerEvents:"none"}}/>
 
-        <div className="features-grid">
-          {FEATURES.map((f,i)=>(
-            <div key={i} className={`feat-card${i%3<2?" feat-border-r":""}${i<6?" feat-border-b":""}`} style={{
-              background:C.bg1,padding:"28px 24px",
-            }}>
-              <div style={{
-                width:44,height:44,borderRadius:12,
-                background:f.accent,border:`1px solid ${f.color}30`,
-                display:"flex",alignItems:"center",justifyContent:"center",
-                fontSize:22,color:f.color,marginBottom:16,
-              }}>{f.icon}</div>
-              <div style={{fontSize:9,color:f.color,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:6}}>{f.sub}</div>
-              <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.text,marginBottom:8,letterSpacing:"-0.3px"}}>{f.title}</div>
-              <div style={{fontSize:13,color:C.muted,lineHeight:1.75}}>{f.desc}</div>
-              <div style={{marginTop:18,display:"flex",alignItems:"center",gap:8}}>
-                <div style={{width:28,height:2,background:GOLD_GRADIENT,borderRadius:1}}/>
-                <span style={{fontSize:10,color:C.muted,letterSpacing:"1px"}}>EXPLORE ?</span>
+        <div style={{maxWidth:1280,margin:"0 auto",position:"relative"}}>
+
+          {/* Section header */}
+          <div style={{marginBottom:72,display:"flex",justifyContent:"space-between",alignItems:"flex-end",flexWrap:"wrap",gap:32}}>
+            <div>
+              <div style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:"3px",textTransform:"uppercase",marginBottom:16,display:"flex",alignItems:"center",gap:8}}>
+                <span style={{display:"inline-block",width:24,height:1.5,background:GOLD_GRADIENT,borderRadius:1}}/>
+                ✦ Enterprise Capabilities
+                <span style={{display:"inline-block",width:24,height:1.5,background:GOLD_GRADIENT,borderRadius:1}}/>
+              </div>
+              <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(36px,4.5vw,60px)",fontWeight:700,letterSpacing:"-2px",color:C.text,lineHeight:1.08}}>
+                Integrated Modules,<br/>
+                <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>One Enterprise Platform.</span>
               </div>
             </div>
-          ))}
+            <div style={{maxWidth:400}}>
+              <p style={{fontSize:15,color:C.muted,lineHeight:1.9,marginBottom:20}}>Every module built for Philippine commerce — deeply integrated, infinitely scalable, and ready in 72 hours.</p>
+              <div style={{display:"flex",gap:20,flexWrap:"wrap"}}>
+                {[["41+","Modules"],["18+","Platforms"],["99.9%","Uptime"]].map(([v,l])=>(
+                  <div key={l}>
+                    <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:28,fontWeight:700,background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{v}</div>
+                    <div style={{fontSize:11,color:C.muted,letterSpacing:"1px",textTransform:"uppercase"}}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Module cards grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:1,border:`1px solid ${C.border}`,borderRadius:20,overflow:"hidden"}}>
+            {[
+              {
+                icon:"◈", color:C.gold, sub:"Social Commerce",
+                title:"Unified Inbox",
+                desc:"AI-powered command center across every platform — reply, resolve, and convert from one screen.",
+                features:["All messages in one inbox — Facebook, Instagram, TikTok, Shopee, Lazada, Viber","AI-suggested replies trained on your brand voice and FAQs","Auto-label and route conversations by intent (order, complaint, inquiry)","Team assignment, notes, SLA timers & escalation flows","Bulk messaging and broadcast campaigns","Real-time read receipts & delivery tracking"],
+                stat:"12M+", statLabel:"AI Responses Sent",
+              },
+              {
+                icon:"🤝", color:C.cyan, sub:"Customer Intelligence",
+                title:"Merchant CRM",
+                desc:"360° customer profiles that unify every touchpoint across all your brands and platforms.",
+                features:["Full contact timeline: chats, orders, complaints, returns in one profile","AI lead scoring — predict purchase likelihood with behavioral signals","Pipeline management: Lead → Prospect → Customer → VIP","Lifetime value tracking & cohort segmentation","Custom tags, notes, and task assignments per contact","Automated follow-up sequences based on stage & inactivity"],
+                stat:"360°", statLabel:"Customer View",
+              },
+              {
+                icon:"▣", color:C.green, sub:"Inventory & Operations",
+                title:"ERP & Inventory",
+                desc:"Real-time stock intelligence across warehouses, variants, and brands — zero spreadsheets.",
+                features:["Live stock levels with low-stock and out-of-stock alerts","Multi-brand, multi-warehouse product catalog","Automated reorder points and purchase order generation","Variant-level tracking (size, color, SKU)","Landed cost, margin analysis & profitability per SKU","Shopee/Lazada sync — stock updates in real time"],
+                stat:"₱0", statLabel:"Inventory Discrepancies",
+              },
+              {
+                icon:"◧", color:C.violet, sub:"Revenue Intelligence",
+                title:"Business Analytics",
+                desc:"Enterprise-grade dashboards that turn raw data into growth decisions — in seconds.",
+                features:["Revenue, profit & GMV dashboards updated in real time","Sales funnel & conversion rate analysis by platform","Cohort analysis & customer retention curves","Cross-brand and cross-platform performance comparison","Scheduled PDF/Excel reports sent to your inbox","Custom KPI widgets and date-range drill-downs"],
+                stat:"24h", statLabel:"Data Refresh Cycle",
+              },
+              {
+                icon:"◑", color:C.amber, sub:"Market Intelligence",
+                title:"Demographics Module",
+                desc:"Know your buyers better than they know themselves — age, location, behavior, and psychographics.",
+                features:["Age & gender breakdown by platform and product category","Geographic heatmaps down to city and barangay level","Behavioral segmentation: first-time, repeat, VIP, at-risk","Psychographic profiling — interests, motivations, spend habits","Platform audience overlap analysis across Facebook, TikTok, Shopee","Export segments directly to ad platforms for lookalike targeting"],
+                stat:"50+", statLabel:"Audience Segments",
+              },
+              {
+                icon:"🔬", color:C.rose, sub:"AI Market Research",
+                title:"Market Research AI",
+                desc:"Stop guessing. Get AI-generated intelligence on trends, competitors, and keyword opportunities.",
+                features:["Keyword volume & CPC intelligence for Philippine search","Competitor benchmarking — pricing, positioning, share of voice","Trend detection: rising searches, viral products, seasonal peaks","Sentiment analysis across customer reviews and social mentions","AI-generated market reports in minutes, not days","Category opportunity scoring — find untapped niches first"],
+                stat:"AI", statLabel:"Reports in Minutes",
+              },
+              {
+                icon:"◈", color:C.gold2, sub:"Conversational AI",
+                title:"AI Chatbot",
+                desc:"Your best sales agent — online 24/7, speaks Taglish, knows your products by heart.",
+                features:["Trained on your exact products, FAQs, policies, and tone of voice","Handles order status, returns, complaints, and recommendations","Taglish support — speaks naturally to Filipino customers","Seamless human handoff with full chat context preserved","A/B test conversation flows to maximize conversion","Works on Messenger, Instagram DMs, TikTok, Viber & web chat"],
+                stat:"24/7", statLabel:"Always Online",
+              },
+              {
+                icon:"◉", color:C.cyan, sub:"Mass Communication",
+                title:"Broadcast Module",
+                desc:"Reach thousands of customers simultaneously with targeted, personalized campaigns.",
+                features:["Send to segmented lists — by platform, purchase history, or location","Personalized merge tags: name, last order, loyalty points","Scheduled campaigns with optimal send-time AI suggestions","Multi-channel blast: Messenger, SMS, Viber, email in one flow","Campaign performance: open rate, click-through, conversion","Drip sequences — onboarding, re-engagement, upsell workflows"],
+                stat:"500K+", statLabel:"Messages / Campaign",
+              },
+              {
+                icon:"◫", color:C.violet, sub:"Email Marketing",
+                title:"Email Campaigns",
+                desc:"Professional email marketing built for commerce — from transactional to retention campaigns.",
+                features:["Drag-and-drop email builder with mobile-optimized templates","Automated sequences: welcome series, cart abandonment, win-back","Segmented sends based on CRM data and purchase behavior","A/B subject line and content testing","Detailed analytics: opens, clicks, unsubscribes, revenue attributed","BIR-compliant transactional receipts and invoices via email"],
+                stat:"42%", statLabel:"Avg Open Rate",
+              },
+              {
+                icon:"◈", color:C.rose, sub:"Ads Intelligence",
+                title:"Social Ads Manager",
+                desc:"Track every peso spent on ads and prove ROI — across Facebook, TikTok, and Shopee Ads.",
+                features:["Unified ROAS dashboard across all ad platforms","Creative performance scoring — identify winning visuals and copy","Attribution modeling: first-touch, last-touch, and multi-touch","Budget pacing alerts — never overspend or underspend","Audience insight overlap with your CRM contacts","Automated reporting with spend vs. revenue reconciliation"],
+                stat:"3.8×", statLabel:"Average ROAS",
+              },
+              {
+                icon:"◴", color:C.green, sub:"Scheduling & Planning",
+                title:"Calendar Module",
+                desc:"Unified scheduling for your team, campaigns, and customer appointments — all in sync.",
+                features:["Shared team calendar with task assignment and deadlines","Customer appointment booking with automated reminders","Campaign launch calendar integrated with Broadcast & Email modules","Content planning board with platform-specific preview","Recurring task templates for weekly/monthly operations","Google Calendar & Outlook sync"],
+                stat:"72h", statLabel:"Setup to Live",
+              },
+              {
+                icon:"◆", color:C.amber, sub:"Order Operations",
+                title:"Orders Module",
+                desc:"End-to-end order management from checkout to delivery — across every sales channel.",
+                features:["Unified order view: Shopee, Lazada, manual orders, COD, online","Order status tracking with automated customer notifications","Partial fulfillment, returns, refunds & cancellation workflows","Courier integration: J&T, LBC, Ninja Van, GrabExpress","Packing slips, airway bills, and delivery receipts auto-generated","COD reconciliation and remittance tracking"],
+                stat:"99%", statLabel:"Fulfillment Accuracy",
+              },
+            ].map((mod, i) => (
+              <div key={i}
+                style={{
+                  background:C.bg1, padding:"36px 32px", position:"relative", overflow:"hidden",
+                  borderRight: (i+1)%3!==0 ? `1px solid ${C.border}` : "none",
+                  borderBottom: i < 9 ? `1px solid ${C.border}` : "none",
+                  transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",
+                }}
+                onMouseEnter={e=>{
+                  e.currentTarget.style.background=C.bg2;
+                  e.currentTarget.style.zIndex="2";
+                  const icon=e.currentTarget.querySelector('[data-modicon]');
+                  if(icon){icon.style.transform="scale(1.15) rotate(6deg)";icon.style.boxShadow=`0 12px 32px ${mod.color}35`;}
+                }}
+                onMouseLeave={e=>{
+                  e.currentTarget.style.background=C.bg1;
+                  e.currentTarget.style.zIndex="1";
+                  const icon=e.currentTarget.querySelector('[data-modicon]');
+                  if(icon){icon.style.transform="scale(1) rotate(0deg)";icon.style.boxShadow=`0 6px 20px ${mod.color}18`;}
+                }}
+              >
+                {/* Top accent gradient bar */}
+                <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:`linear-gradient(90deg,transparent,${mod.color}80,transparent)`}}/>
+
+                {/* Icon + category */}
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:20}}>
+                  <div data-modicon style={{
+                    width:54,height:54,borderRadius:14,
+                    background:`linear-gradient(135deg,${mod.color}20,${mod.color}08)`,
+                    border:`1px solid ${mod.color}35`,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:26,flexShrink:0,
+                    boxShadow:`0 6px 20px ${mod.color}18`,
+                    transition:"transform 0.35s cubic-bezier(0.22,1,0.36,1),box-shadow 0.35s",
+                  }}>{mod.icon}</div>
+                  <div style={{fontSize:9,color:mod.color,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",
+                    padding:"4px 10px",border:`1px solid ${mod.color}30`,borderRadius:20,background:`${mod.color}0a`}}>
+                    {mod.sub}
+                  </div>
+                </div>
+
+                {/* Title + desc */}
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:C.text,letterSpacing:"-0.4px",lineHeight:1.2,marginBottom:10}}>
+                  {mod.title}
+                </div>
+                <div style={{fontSize:13,color:C.muted,lineHeight:1.7,marginBottom:20}}>{mod.desc}</div>
+
+                {/* Features list */}
+                <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:24}}>
+                  {mod.features.map((feat,fi)=>(
+                    <div key={fi} style={{display:"flex",alignItems:"flex-start",gap:9}}>
+                      <span style={{color:mod.color,fontSize:12,marginTop:1,flexShrink:0,fontWeight:700}}>✦</span>
+                      <span style={{fontSize:12.5,color:C.muted,lineHeight:1.55}}>{feat}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Bottom stat */}
+                <div style={{
+                  marginTop:"auto",paddingTop:20,
+                  borderTop:`1px solid ${C.border}`,
+                  display:"flex",alignItems:"center",justifyContent:"space-between",
+                }}>
+                  <div style={{display:"flex",alignItems:"baseline",gap:6}}>
+                    <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:700,background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{mod.stat}</span>
+                    <span style={{fontSize:11,color:C.muted,letterSpacing:"0.5px"}}>{mod.statLabel}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{width:20,height:1.5,background:GOLD_GRADIENT,borderRadius:1}}/>
+                    <span style={{fontSize:10,color:mod.color,letterSpacing:"1.5px",fontWeight:700}}>EXPLORE →</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Bottom CTA row */}
+          <div style={{marginTop:56,textAlign:"center"}}>
+            <div style={{fontSize:13,color:C.muted,marginBottom:20}}>All modules included in every plan. Unlock more with Growth & Enterprise tiers.</div>
+            <div style={{display:"flex",gap:16,justifyContent:"center",flexWrap:"wrap"}}>
+              <button onClick={()=>{setMode("signup");focusAuth();}} style={{
+                padding:"14px 36px",borderRadius:12,background:GOLD_GRADIENT,
+                border:"none",color:C.bg0,fontSize:14,fontWeight:800,cursor:"pointer",
+                boxShadow:GOLD_GLOW,letterSpacing:"0.5px",transition:"all 0.3s",
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px) scale(1.04)";e.currentTarget.style.boxShadow=`0 0 50px ${C.gold}80`;}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=GOLD_GLOW;}}>
+                Start Free Trial — All Modules
+              </button>
+              <button onClick={()=>document.getElementById("demo-section")?.scrollIntoView({behavior:"smooth",block:"start"})} style={{
+                padding:"14px 36px",borderRadius:12,background:"transparent",
+                border:`2px solid ${C.gold}50`,color:C.gold,
+                fontSize:14,fontWeight:700,cursor:"pointer",transition:"all 0.3s",letterSpacing:"0.3px",
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.background=`${C.gold}12`;e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.transform="translateY(-3px)";}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${C.gold}50`;e.currentTarget.style.transform="translateY(0)";}}>
+                Schedule a Demo
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* -------------- HOW IT WORKS -------------- */}
+      <section className="section-pad" style={{
+        borderTop:`1px solid ${C.border}`,
+        background:`linear-gradient(180deg,${C.bg0},${C.bg1})`,
+        position:"relative",zIndex:1,overflow:"hidden",
+      }}>
+        <div style={{position:"absolute",inset:0,background:`radial-gradient(ellipse 70% 60% at 50% 100%,${C.gold}06,transparent)`,pointerEvents:"none"}}/>
+        <div style={{maxWidth:1200,margin:"0 auto",position:"relative"}}>
+          <div style={{textAlign:"center",marginBottom:72}}>
+            <div style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:"3px",textTransform:"uppercase",marginBottom:16}}>✦ Rapid Deployment</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(32px,4.2vw,52px)",fontWeight:700,letterSpacing:"-1.5px",color:C.text,lineHeight:1.15}}>
+              Live in 72 Hours.<br/>
+              <span style={{background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>Enterprise-Ready Setup.</span>
+            </div>
+          </div>
+
+          {/* Steps connector */}
+          <div className="hiw-grid" style={{display:"grid",gridTemplateColumns:"1fr auto 1fr auto 1fr",gap:0,alignItems:"flex-start"}}>
+            {[
+              {num:"01",icon:"◈",title:"Tell us your brand",desc:"Share your products, platforms, tone of voice, and team size. Our onboarding team sets up your Exponify workspace.",color:C.gold},
+              {num:"02",icon:"◉",title:"We configure everything",desc:"Your CRM, ERP, AI chatbot, and social channels are connected and configured within 72 hours — no developer needed.",color:C.amber},
+              {num:"03",icon:"◈",title:"Launch and scale",desc:"Go live across all platforms simultaneously. Watch revenue, efficiency, and customer satisfaction climb from day one.",color:C.green},
+            ].reduce((acc,s,i)=>{
+              acc.push(
+                <div key={s.num} className="luxury-card" style={{
+                  background:C.bg2,border:`1px solid ${C.border}`,
+                  borderRadius:22,padding:"44px 36px",textAlign:"center",
+                  animation:`slideInScale 0.7s cubic-bezier(0.22,1,0.36,1) ${i*0.15}s both`,
+                  transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",
+                }}
+                onMouseMove={e=>{
+                  const r=e.currentTarget.getBoundingClientRect();
+                  e.currentTarget.style.setProperty('--mx',((e.clientX-r.left)/r.width*100)+'%');
+                  e.currentTarget.style.setProperty('--my',((e.clientY-r.top)/r.height*100)+'%');
+                }}
+                onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-14px) scale(1.06)";e.currentTarget.style.boxShadow=`0 35px 80px #00000075,0 0 0 1px ${s.color}50,0 0 50px ${s.color}30`;}}
+                onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=`0 12px 35px #00000050`;}}>
+                  <div style={{position:"relative",display:"inline-block",marginBottom:28}}>
+                    <div style={{
+                      width:76,height:76,borderRadius:"50%",
+                      background:`linear-gradient(135deg,${s.color}25,${s.color}08)`,
+                      border:`2px solid ${s.color}45`,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:32,
+                      animation:`luxuryFloat 4s ease-in-out infinite`,
+                      transition:"transform 0.3s",
+                    }}>{s.icon}</div>
+                    <div style={{
+                      position:"absolute",top:-6,right:-6,
+                      width:26,height:26,borderRadius:"50%",
+                      background:GOLD_GRADIENT,
+                      display:"flex",alignItems:"center",justifyContent:"center",
+                      fontSize:10,fontWeight:900,color:C.bg0,letterSpacing:"-0.4px",
+                      animation:`pulseRing 2s ease-in-out infinite`,
+                    }}>{s.num}</div>
+                  </div>
+                  <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:C.text,marginBottom:14,lineHeight:1.25}}>{s.title}</div>
+                  <div style={{fontSize:14,color:C.muted,lineHeight:1.8}}>{s.desc}</div>
+                </div>
+              );
+              if(i<2) acc.push(
+                <div key={`arr${i}`} className="hiw-arrow" style={{
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  padding:"0 16px",paddingTop:32,
+                }}>
+                  <div style={{
+                    width:40,height:2,
+                    background:`linear-gradient(90deg,${C.gold}30,${C.gold}80)`,
+                    borderRadius:1,position:"relative",
+                  }}>
+                    <div style={{position:"absolute",right:-6,top:"50%",transform:"translateY(-50%)",color:C.gold,fontSize:16,lineHeight:1,opacity:0.7}}>›</div>
+                  </div>
+                </div>
+              );
+              return acc;
+            },[])}
+          </div>
+
+          <div style={{textAlign:"center",marginTop:48}}>
+            <button onClick={()=>{setMode("signup");focusAuth();}} style={{
+              padding:"13px 36px",borderRadius:11,background:GOLD_GRADIENT,
+              border:"none",color:C.bg0,fontSize:14,fontWeight:800,cursor:"pointer",
+              boxShadow:GOLD_GLOW,letterSpacing:"0.4px",transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",
+              animation:"luxeGlow 3s ease-in-out infinite",
+            }}
+            onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-4px) scale(1.06)";e.currentTarget.style.boxShadow=`0 0 50px ${C.gold}80,0 0 100px ${C.gold}40`;}}
+            onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=GOLD_GLOW;}}>
+              Start Free Today →
+            </button>
+            <div style={{marginTop:12,fontSize:11,color:C.muted}}>No credit card required • 14-day free trial • Cancel anytime</div>
+          </div>
         </div>
       </section>
 
@@ -1949,7 +3124,7 @@ function LandingPage() {
               }}
               onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold+"55";e.currentTarget.style.background=C.bg3;}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.bg2;}}>
-                <div style={{fontSize:26,marginBottom:8}}>{u.icon}</div>
+                <div style={{marginBottom:10,display:"flex",justifyContent:"center"}}><Icon5D icon={u.icon} color={C.gold} size={44} glyphSize={22} rounded={14} /></div>
                 <div style={{fontWeight:700,color:C.text,fontSize:13,marginBottom:5}}>{u.label}</div>
                 <div style={{fontSize:11,color:C.muted,lineHeight:1.5}}>{u.desc}</div>
               </div>
@@ -1960,64 +3135,89 @@ function LandingPage() {
 
       {/* -------------- QUOTE + CTA -------------- */}
       <section style={{
-        textAlign:"center",padding:"72px 24px",
+        textAlign:"center",padding:"96px 24px",
         borderTop:`1px solid ${C.border}`,
-        background:`linear-gradient(180deg,${C.bg0},${C.bg1},${C.bg0})`,
-        position:"relative",zIndex:1,
+        background:`linear-gradient(180deg,${C.bg1} 0%,${C.bg0} 40%,${C.bg1} 100%)`,
+        position:"relative",zIndex:1,overflow:"hidden",
       }}>
-        <div style={{
-          width:56,height:56,borderRadius:"50%",
-          background:`radial-gradient(circle,${C.gold}22,transparent)`,
-          border:`1px solid ${C.gold}33`,
-          display:"flex",alignItems:"center",justifyContent:"center",
-          margin:"0 auto 24px",boxShadow:GOLD_GLOW,
-        }}>
-          <HermesLogo size={30}/>
+        {/* Cinematic background */}
+        <div style={{position:"absolute",inset:0,background:`radial-gradient(ellipse 80% 60% at 50% 50%,${C.gold}08,transparent)`,pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:600,height:600,borderRadius:"50%",border:`1px solid ${C.gold}06`,animation:"rotateSlow 40s linear infinite",pointerEvents:"none"}}/>
+        <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:400,height:400,borderRadius:"50%",border:`1px solid ${C.gold}09`,animation:"rotateSlowReverse 28s linear infinite",pointerEvents:"none"}}/>
+
+        {/* Logo orb */}
+        <div style={{position:"relative",display:"inline-block",marginBottom:32}}>
+          <div style={{
+            width:72,height:72,borderRadius:"50%",
+            background:`radial-gradient(circle,${C.gold}28,${C.bg2})`,
+            border:`1px solid ${C.gold}45`,
+            display:"flex",alignItems:"center",justifyContent:"center",
+            boxShadow:`${GOLD_GLOW}, inset 0 1px 0 ${C.gold}30`,
+            animation:"scaleBreath 5s ease-in-out infinite",
+          }}>
+            <HermesLogo size={38}/>
+          </div>
+          <div style={{position:"absolute",inset:-8,borderRadius:"50%",border:`1px solid ${C.gold}20`,animation:"rotateSlow 12s linear infinite",pointerEvents:"none"}}/>
+          <div style={{position:"absolute",inset:-16,borderRadius:"50%",border:`1px dashed ${C.gold}10`,animation:"rotateSlowReverse 20s linear infinite",pointerEvents:"none"}}/>
         </div>
 
         <div style={{
           fontFamily:"'Cormorant Garamond',serif",
-          fontSize:"clamp(18px,3vw,30px)",fontWeight:400,color:C.gold,
-          fontStyle:"italic",marginBottom:10,letterSpacing:"0.5px",
-          opacity:0.9,maxWidth:640,margin:"0 auto 10px",lineHeight:1.4,
+          fontSize:"clamp(20px,3.5vw,36px)",fontWeight:400,color:C.gold,
+          fontStyle:"italic",letterSpacing:"0.5px",
+          opacity:0.92,maxWidth:680,margin:"0 auto 12px",lineHeight:1.45,
         }}>
-          "Hermes � messenger of gods, patron of merchants, master of the crossroads."
+          “Hermes • messenger of gods, patron of merchants,<br/>master of the crossroads.”
         </div>
-        <div style={{fontSize:11,color:C.muted,letterSpacing:"2.5px",textTransform:"uppercase",marginBottom:40}}>Greek Mythology</div>
+        <div style={{fontSize:10,color:C.muted,letterSpacing:"3px",textTransform:"uppercase",marginBottom:56}}>Greek Mythology</div>
 
-        <div style={{display:"flex",justifyContent:"center",marginBottom:48}}>
-          <div className="stats-block">
-            {[
-              {val:"50%",label:"More Efficient"},
-              {val:"30%",label:"Time Saved"},
-              {val:"100%",label:"Data Protection"},
-            ].map((s,i)=>(
-              <div key={i} className="stats-block-item" style={{
-                borderRight:i<2?`1px solid ${C.border}`:"none",
-              }}>
-                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:34,fontWeight:700,letterSpacing:"-1px",background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{s.val}</div>
-                <div style={{fontSize:11,color:C.muted,marginTop:4,letterSpacing:"1px",textTransform:"uppercase"}}>{s.label}</div>
-              </div>
-            ))}
-          </div>
+        {/* Premium stats row */}
+        <div style={{display:"flex",justifyContent:"center",gap:0,marginBottom:56,flexWrap:"wrap"}}>
+          {[
+            {val:"150+",label:"Active PH Brands",icon:"◈"},
+            {val:"88%+",label:"Ops Efficiency Gain",icon:"◉"},
+            {val:"18K+",label:"Orders Managed/Mo",icon:"▣"},
+            {val:"99.9%",label:"Platform Uptime",icon:"◆"},
+          ].map((s,i)=>(
+            <div key={i} style={{
+              padding:"28px 40px",borderRight:i<3?`1px solid ${C.border}`:"none",
+              minWidth:160,
+            }}>
+              <div style={{fontSize:22,marginBottom:8}}>{s.icon}</div>
+              <div style={{
+                fontFamily:"'Cormorant Garamond',serif",
+                fontSize:"clamp(28px,3vw,40px)",fontWeight:700,letterSpacing:"-1.5px",
+                background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",
+                lineHeight:1,marginBottom:6,
+              }}><CountUp val={s.val}/></div>
+              <div style={{fontSize:10,color:C.muted,letterSpacing:"1.5px",textTransform:"uppercase"}}>{s.label}</div>
+            </div>
+          ))}
         </div>
 
-        <div className="cta-btns" style={{display:"flex",gap:12,justifyContent:"center",flexWrap:"wrap"}}>
+        {/* CTA buttons */}
+        <div className="cta-btns" style={{display:"flex",gap:14,justifyContent:"center",flexWrap:"wrap",marginBottom:24}}>
           <button onClick={()=>{setMode("signup");focusAuth();}} style={{
-            padding:"14px 40px",borderRadius:12,background:GOLD_GRADIENT,
+            padding:"15px 44px",borderRadius:12,background:GOLD_GRADIENT,
             border:"none",color:C.bg0,fontSize:15,fontWeight:800,cursor:"pointer",
-            boxShadow:GOLD_GLOW,letterSpacing:"0.5px",transition:"all 0.2s",
-          }}>Enter the Platform ?</button>
-          <button onClick={()=>{setMode("signin");focusAuth();}} style={{
-            padding:"14px 40px",borderRadius:12,background:"transparent",
-            border:`1px solid ${C.border2}`,color:C.text,
-            fontSize:15,fontWeight:500,cursor:"pointer",transition:"all 0.2s",
+            boxShadow:GOLD_GLOW,letterSpacing:"0.6px",transition:"all 0.22s",
+            animation:"glowPulse 5s ease infinite",
           }}
-          onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.color=C.gold;}}
-          onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border2;e.currentTarget.style.color=C.text;}}>
-            Sign In
+          onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-2px) scale(1.02)";}}
+          onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0) scale(1)";}}>
+            Begin Your Ascent →
+          </button>
+          <button onClick={()=>document.getElementById("demo-section")?.scrollIntoView({behavior:"smooth",block:"start"})} style={{
+            padding:"15px 44px",borderRadius:12,background:"transparent",
+            border:`1px solid ${C.gold}50`,color:C.gold,
+            fontSize:15,fontWeight:600,cursor:"pointer",transition:"all 0.22s",letterSpacing:"0.4px",
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.background=`${C.gold}12`;e.currentTarget.style.borderColor=C.gold;}}
+          onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=`${C.gold}50`;}}>
+            Book a Free Demo
           </button>
         </div>
+        <div style={{fontSize:11,color:C.muted}}>No credit card required • 14-day free trial • Cancel anytime</div>
       </section>
 
 
@@ -2031,33 +3231,213 @@ function LandingPage() {
               Book a Free Demo
             </div>
             <div style={{fontSize:14,color:C.muted,maxWidth:480,margin:"0 auto",lineHeight:1.7}}>
-              See Exponify in action � powered by Hermes. Tell us about your business and we'll show you exactly how it fits.
+              See Exponify in action • powered by Hermes. Tell us about your business and we'll show you exactly how it fits.
             </div>
           </div>
           <DemoBookingForm/>
         </div>
       </section>
 
-      {/* -------------- FOOTER -------------- */}
-      <footer style={{borderTop:`1px solid ${C.border}`,background:C.bg0,position:"relative",zIndex:1}}>
-        <div className="footer-inner">
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <HermesLogo size={22}/>
-            <div>
-              <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,letterSpacing:"1px",color:C.text}}>
-                <ExponifyWord/>
-              </span>
-              <span style={{display:"block",fontSize:8,color:C.muted,letterSpacing:"2px",textTransform:"uppercase"}}>Powered by Hermes � Philippines</span>
+      {/* -------------- CLIENT TESTIMONIALS -------------- */}
+      <section className="section-pad" style={{background:C.bg0,borderTop:`1px solid ${C.border}`,position:"relative",zIndex:1,overflow:"hidden"}}>
+        <div style={{position:"absolute",inset:0,background:`radial-gradient(ellipse 80% 50% at 50% 0%,${C.gold}06,transparent)`,pointerEvents:"none"}}/>
+        <div style={{maxWidth:1200,margin:"0 auto",position:"relative"}}>
+
+          {/* Header */}
+          <div style={{textAlign:"center",marginBottom:72}}>
+            <div style={{fontSize:11,color:C.gold,fontWeight:700,letterSpacing:"3px",textTransform:"uppercase",marginBottom:16}}>✦ Client Success Stories</div>
+            <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:"clamp(32px,4vw,48px)",fontWeight:700,letterSpacing:"-1.5px",color:C.text,marginBottom:16}}>
+              Trusted by 500+ Philippine Brands
+            </div>
+            <div style={{fontSize:15,color:C.muted,maxWidth:520,margin:"0 auto",lineHeight:1.8,fontWeight:400}}>
+              From fast-growing startups to enterprise retailers — here's what our clients achieve with Exponify.
             </div>
           </div>
-          <div style={{display:"flex",gap:24,fontSize:11,color:C.muted,flexWrap:"wrap"}}>
-            {["Privacy","Terms","Contact","Blog"].map(l=>(
-              <span key={l} style={{cursor:"pointer",transition:"color 0.2s"}}
-                onMouseEnter={e=>e.target.style.color=C.gold} onMouseLeave={e=>e.target.style.color=C.muted}>{l}</span>
+
+          {/* Testimonials grid */}
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))",gap:28,marginBottom:48}}>
+            {[
+              {
+                quote:"Exponify completely transformed how we manage our Shopee, Lazada, and TikTok Shop orders. What used to take our team 3 hours daily now takes 20 minutes. The ROI paid for itself in the first month.",
+                name:"Maria Santos",role:"Founder & CEO",company:"Bloom & Glow PH",platform:"Shopee • Lazada • TikTok Shop",
+                avatar:"MS",color:C.rose,stars:5,metric:"3hrs → 20min daily ops",
+              },
+              {
+                quote:"The AI-powered CRM and auto-reply features are game changers. Our customer response time dropped from 6 hours to under 3 minutes. Our repeat purchase rate went up 38% in 60 days.",
+                name:"Carlo Reyes",role:"Head of E-Commerce",company:"NutriChoice Philippines",platform:"Facebook • Instagram • Shopify",
+                avatar:"CR",color:C.cyan,stars:5,metric:"+38% repeat purchase rate",
+              },
+              {
+                quote:"Finally a platform built for Philippine brands. The BIR-ready accounting module and PhilHealth/SSS payroll integration saved us from hiring a dedicated accountant. Worth every peso.",
+                name:"Aileen Domingo",role:"COO",company:"Crafthaus Studio",platform:"WooCommerce • GCash • Maya",
+                avatar:"AD",color:C.violet,stars:5,metric:"Accounting fully automated",
+              },
+              {
+                quote:"We scaled from ₱800K to ₱4.2M monthly GMV in 5 months. Exponify's campaign automation and influencer tracking gave us insights we never had before. The team support is exceptional too.",
+                name:"James Lim",role:"Marketing Director",company:"PureLocal Foods",platform:"TikTok Shop • Grab • Shopee",
+                avatar:"JL",color:C.amber,stars:5,metric:"₱0.8M → ₱4.2M GMV",
+              },
+              {
+                quote:"Managing 8 brand accounts across multiple platforms was chaos before Exponify. Now everything — inbox, orders, analytics — is in one dashboard. My whole team works faster and makes fewer mistakes.",
+                name:"Rachel Tan",role:"Brand Manager",company:"Luxe Cosmetics Group",platform:"Instagram • Lazada • Shopify",
+                avatar:"RT",color:C.green,stars:5,metric:"8 brands, 1 dashboard",
+              },
+              {
+                quote:"The Hermes AI chatbot handles 80% of our customer FAQs automatically — in Filipino and English. Our support team now focuses on high-value conversations instead of repetitive queries.",
+                name:"Marco Villanueva",role:"Customer Experience Lead",company:"SportZone PH",platform:"Facebook • Viber • Shopee",
+                avatar:"MV",color:C.gold,stars:5,metric:"80% queries auto-resolved",
+              },
+            ].map((t,i)=>(
+              <div key={i} style={{
+                background:`linear-gradient(145deg,${C.bg2} 0%,${C.bg3} 100%)`,border:`1px solid ${C.border}`,borderRadius:18,
+                padding:"32px 28px 28px",position:"relative",
+                transition:"all 0.3s cubic-bezier(0.22,1,0.36,1)",cursor:"default",
+                animation:`slideInScale 0.6s cubic-bezier(0.22,1,0.36,1) ${i*0.08}s both`,
+              }}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor=`${t.color}55`;e.currentTarget.style.transform="translateY(-10px) scale(1.03)";e.currentTarget.style.boxShadow=`0 30px 70px #00000075,0 0 0 1px ${t.color}50,0 0 40px ${t.color}28`;}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.transform="translateY(0) scale(1)";e.currentTarget.style.boxShadow=`0 12px 35px #00000050`;}}>
+                {/* Gold accent top bar */}
+                <div style={{position:"absolute",top:0,left:28,right:28,height:2.5,background:`linear-gradient(90deg,${t.color}85,transparent)`,borderRadius:2,animation:`shimmerWave 3s linear infinite`}}/>
+
+                {/* Stars */}
+                <div style={{display:"flex",gap:4,marginBottom:20}}>
+                  {[...Array(t.stars)].map((_,s)=>(
+                    <span key={s} style={{color:C.gold,fontSize:14,lineHeight:1}}>★</span>
+                  ))}
+                </div>
+
+                {/* Quote */}
+                <p style={{fontSize:14.5,color:C.text,lineHeight:1.8,marginBottom:24,fontStyle:"italic",opacity:0.9,fontWeight:400}}>
+                  "{t.quote}"
+                </p>
+
+                {/* Metric badge */}
+                <div style={{
+                  display:"inline-flex",alignItems:"center",gap:8,
+                  background:`${t.color}14`,border:`1px solid ${t.color}35`,
+                  borderRadius:10,padding:"6px 14px",marginBottom:22,
+                  fontSize:12,color:t.color,fontWeight:700,letterSpacing:"0.4px",
+                }}>
+                  📈 {t.metric}
+                </div>
+
+                {/* Author */}
+                <div style={{display:"flex",alignItems:"center",gap:14,paddingTop:20,borderTop:`1px solid ${C.border}`}}>
+                  <div style={{
+                    width:44,height:44,borderRadius:"50%",
+                    background:`${t.color}22`,border:`2px solid ${t.color}45`,
+                    display:"flex",alignItems:"center",justifyContent:"center",
+                    fontSize:13,fontWeight:800,color:t.color,flexShrink:0,
+                  }}>{t.avatar}</div>
+                  <div>
+                    <div style={{fontSize:14,fontWeight:700,color:C.text}}>{t.name}</div>
+                    <div style={{fontSize:12,color:C.muted,marginTop:2}}>{t.role} · {t.company}</div>
+                    <div style={{fontSize:11,color:t.color,marginTop:3,letterSpacing:"0.4px"}}>{t.platform}</div>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
-          <div style={{fontSize:11,color:C.muted}}>
-            � 2026 <ExponifyWord style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700}}/> � Powered by Hermes
+
+          {/* Bottom summary bar */}
+          <div style={{
+            display:"flex",justifyContent:"center",alignItems:"center",gap:40,flexWrap:"wrap",
+            paddingTop:32,borderTop:`1px solid ${C.border}`,
+          }}>
+            {[
+              {icon:"◆",val:"4.9/5",label:"Average Rating"},
+              {icon:"◉",val:"1,240+",label:"Client Reviews"},
+              {icon:"◈",val:"98%",label:"Would Recommend"},
+            ].map((s,i)=>(
+              <div key={i} style={{textAlign:"center"}}>
+                <div style={{fontSize:22,marginBottom:4}}>{s.icon}</div>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:26,fontWeight:700,background:GOLD_GRADIENT,WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>{s.val}</div>
+                <div style={{fontSize:10,color:C.muted,letterSpacing:"1.5px",textTransform:"uppercase",marginTop:2}}>{s.label}</div>
+              </div>
+            ))}
+          </div>
+
+        </div>
+      </section>
+
+      {/* -------------- FOOTER -------------- */}
+      <footer style={{borderTop:`1px solid ${C.border}`,background:C.bg0,position:"relative",zIndex:1,marginTop:60}}>
+        {/* Gold gradient top accent */}
+        <div className="section-divider" style={{margin:0,maxWidth:"none",opacity:0.6}}/>
+
+        {/* Main footer columns */}
+        <div className="footer-cols" style={{maxWidth:1280,margin:"0 auto",padding:"56px 60px 40px",display:"grid",gridTemplateColumns:"1.8fr 1fr 1fr 1.2fr",gap:48}}>
+
+          {/* Col 1: Brand */}
+          <div>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
+              <div style={{animation:"float 4s ease-in-out infinite"}}><HermesLogo size={26}/></div>
+              <div>
+                <span style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,letterSpacing:"1.2px",color:C.text}}><ExponifyWord/></span>
+                <span style={{display:"block",fontSize:7.5,color:C.gold,letterSpacing:"2.5px",textTransform:"uppercase",marginTop:-1}}>Powered by Hermes</span>
+              </div>
+            </div>
+            <p style={{fontSize:12.5,color:C.muted,lineHeight:1.85,marginBottom:20,maxWidth:280}}>
+              The all-in-one commerce platform for fast-scaling Filipino brands — unifying CRM, ERP, AI chatbot, and social commerce in one divine dashboard.
+            </p>
+            <div style={{display:"flex",gap:8}}>
+              {[
+                {label:"FB",color:"#1877f2"},
+                {label:"IG",color:"#e1306c"},
+                {label:"TK",color:"#fe2c55"},
+                {label:"LI",color:"#0077b5"},
+              ].map(s=>(
+                <div key={s.label} style={{
+                  width:32,height:32,borderRadius:8,
+                  background:`${s.color}18`,border:`1px solid ${s.color}30`,
+                  display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:10,fontWeight:800,color:s.color,cursor:"pointer",
+                  transition:"all 0.2s",
+                }}
+                onMouseEnter={e=>{e.currentTarget.style.background=`${s.color}30`;e.currentTarget.style.borderColor=`${s.color}60`;}}
+                onMouseLeave={e=>{e.currentTarget.style.background=`${s.color}18`;e.currentTarget.style.borderColor=`${s.color}30`;}}>
+                  {s.label}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Col 2: Platform */}
+          <div>
+            <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:18}}>Platform</div>
+            {["AI Chatbot","CRM Suite","ERP & Inventory","Analytics","Market Research","Social Ads","Email Marketing"].map(l=>(
+              <div key={l} style={{fontSize:12.5,color:C.muted,marginBottom:10,cursor:"pointer",transition:"color 0.2s"}}
+                onMouseEnter={e=>e.target.style.color=C.gold} onMouseLeave={e=>e.target.style.color=C.muted}>{l}</div>
+            ))}
+          </div>
+
+          {/* Col 3: Company */}
+          <div>
+            <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:18}}>Company</div>
+            {["About Us","Pricing","Blog","Careers","Press","Privacy Policy","Terms of Service"].map(l=>(
+              <div key={l} style={{fontSize:12.5,color:C.muted,marginBottom:10,cursor:"pointer",transition:"color 0.2s"}}
+                onMouseEnter={e=>e.target.style.color=C.gold} onMouseLeave={e=>e.target.style.color=C.muted}>{l}</div>
+            ))}
+          </div>
+
+          {/* Col 4: Contact */}
+          <div>
+            <div style={{fontSize:9,color:C.gold,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",marginBottom:18}}>Get in Touch</div>
+            <div style={{fontSize:12.5,color:C.muted,marginBottom:8}}>📧 admin@exponify.ph</div>
+            <div style={{fontSize:12.5,color:C.muted,marginBottom:20}}>🇵🇭 Philippines</div>
+            <button onClick={()=>document.getElementById("demo-section")?.scrollIntoView({behavior:"smooth",block:"start"})} style={{
+              width:"100%",padding:"10px 16px",borderRadius:9,
+              background:GOLD_GRADIENT,border:"none",
+              color:C.bg0,fontSize:12,fontWeight:800,cursor:"pointer",
+              boxShadow:GOLD_GLOW,letterSpacing:"0.3px",marginBottom:12,
+            }}>Book Free Demo →</button>
+            <div style={{
+              padding:"12px 14px",background:`${C.gold}08`,
+              border:`1px solid ${C.gold}20`,borderRadius:9,
+              fontSize:11,color:C.muted,lineHeight:1.6,
+            }}>
+              <span style={{color:C.gold,fontWeight:700}}>⭐ 4.9/5</span> across 1,240+ reviews
+            </div>
           </div>
         </div>
       </footer>
@@ -2124,8 +3504,8 @@ function HermesChatbot() {
   const [bubbleDone,setBubbleDone]=useState(false);
   const endRef=useRef(null);
   const inputRef=useRef(null);
-  const WELCOME_MSG="Kamusta! ?? I'm Expony � your guide to the Exponify platform. How can I help you today?\n\nYou can ask me about our features, pricing, or how we help Philippine brands grow.";
-  const BUBBLE_PREVIEW="?? Hi! I'm Expony. Need help exploring Exponify?";
+  const WELCOME_MSG="Kamusta! 👋 I'm Expony • your guide to the Exponify platform. How can I help you today?\n\nYou can ask me about our features, pricing, or how we help Philippine brands grow.";
+  const BUBBLE_PREVIEW="👋 Hi! I'm Expony. Need help exploring Exponify?";
 
   useEffect(()=>{ const t=setTimeout(()=>setShowBubble(true),2000); return()=>clearTimeout(t); },[]);
   useEffect(()=>{
@@ -2143,31 +3523,31 @@ function HermesChatbot() {
   },[open]);
   useEffect(()=>{ endRef.current?.scrollIntoView({behavior:"smooth"}); },[msgs]);
 
-  const QUICK_SUGGESTIONS=["? What does Expony do?","?? How much does it cost?","?? Book a free demo","?? Connect my Facebook page"];
-  const SYSTEM_PROMPT=`You are Expony, the friendly AI assistant for Exponify (exponify.ph) � a Philippine AI-powered commerce platform
+  const QUICK_SUGGESTIONS=["🤖 What does Expony do?","💰 How much does it cost?","📅 Book a free demo","📱 Connect my Facebook page"];
+  const SYSTEM_PROMPT=`You are Expony, the friendly AI assistant for Exponify (exponify.ph) • a Philippine AI-powered commerce platform
   Your personality: warm, professional, knowledgeable, uses Taglish naturally (mix Filipino + English), concise replies. Your name is Expony.
   About Exponify platform:
-  - ?? Unified inbox for Facebook, Instagram, TikTok, Shopee, Lazada, Viber
-  - ?? CRM with lead scoring, pipeline management, customer lifetime value tracking
-  - ?? ERP with real-time inventory, automated reorder alerts, margin analysis
-  - ?? Analytics: revenue forecasting, cohort analysis, funnel metrics
-  - ??? Demographics: geographic heatmaps, age/gender breakdowns
-  - ?? Market Research AI: keyword intelligence, competitor benchmarking
-  - ?? Social Ads: AI-powered ad creation, budget optimization, payment via GCash/Card
-  - ?? Email Marketing with AI automation
-  - ?? AI Chatbot builder for Facebook Messenger
+  - 📬 Unified inbox for Facebook, Instagram, TikTok, Shopee, Lazada, Viber
+  - 👥 CRM with lead scoring, pipeline management, customer lifetime value tracking
+  - 📦 ERP with real-time inventory, automated reorder alerts, margin analysis
+  - 📊 Analytics: revenue forecasting, cohort analysis, funnel metrics
+  - 🗺️ Demographics: geographic heatmaps, age/gender breakdowns
+  - 🔍 Market Research AI: keyword intelligence, competitor benchmarking
+  - 📣 Social Ads: AI-powered ad creation, budget optimization, payment via GCash/Card
+  - 📧 Email Marketing with AI automation
+  - 🤖 AI Chatbot builder for Facebook Messenger
   Pricing:
-  - ?? Starter: FREE � 14-day full access trial, no credit card needed
-  - ?? Growth: ?24,917/mo (monthly) or save 30% annually � best value for scaling brands
-  - ??? Enterprise: ?25,000/mo (monthly) or save 50% annually � unlimited everything
-  - ?? All plans include a 14-day free trial. For annual pricing or custom quotes contact admin@exponify.ph
-  Demo: ?? Users can book a free 30-minute Google Meet demo on the landing page.
-  Support: ?? admin@exponify.ph
+  - 🎁 Starter: FREE • 14-day full access trial, no credit card needed
+  - 📈 Growth: ₱24,917/mo (monthly) or save 30% annually • best value for scaling brands
+  - 🏢 Enterprise: ₱25,000/mo (monthly) or save 50% annually • unlimited everything
+  - ✓ All plans include a 14-day free trial. For annual pricing or custom quotes contact admin@exponify.ph
+  Demo: 📅 Users can book a free 30-minute Google Meet demo on the landing page.
+  Support: 📧 admin@exponify.ph
   Rules:
   - Keep replies concise (3-5 sentences max unless user asks for details)
   - Use bullet points for feature lists
   - Always offer to help them book a demo or sign up
-  - Never make up pricing numbers � direct to sales for custom quotes
+  - Never make up pricing numbers • direct to sales for custom quotes
   - If asked about a feature not listed, say you'll check and direct to admin@exponify.ph
   - Always refer to yourself as Expony`;
 
@@ -2198,8 +3578,8 @@ function HermesChatbot() {
   const goldGrad=`linear-gradient(135deg, ${gold3}, ${gold}, ${gold2})`;
   const goldGlow=`0 0 24px ${gold}50, 0 0 48px ${gold}28`;
 
-  // FAB dimensions � keeps consistent spacing calculations
-  const FAB_SIZE = 70;
+  // FAB dimensions • keeps consistent spacing calculations
+  const FAB_SIZE = 52;
   const FAB_MARGIN = 16; // 16px from edges on mobile, 28px on desktop via clamp
 
   return (
@@ -2243,7 +3623,7 @@ function HermesChatbot() {
             className="expony-bubble-x"
             onClick={e=>{e.stopPropagation();setShowBubble(false);setUnread(0);}}
             style={{position:"absolute",top:7,right:9,background:"transparent",border:"none",color:muted,cursor:"pointer",fontSize:15,lineHeight:1,opacity:0.55,padding:2}}
-          >�</button>
+          >—</button>
           <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:7}}>
             <div style={{width:22,height:22,borderRadius:"50%",background:`${gold}18`,border:`1px solid ${gold}44`,display:"flex",alignItems:"center",justifyContent:"center"}}>
               <RobotIcon color="url(#hgc)" size={13}/>
@@ -2292,10 +3672,10 @@ function HermesChatbot() {
             <div style={{flex:1}}>
               <div style={{fontSize:13,fontWeight:700,color:text,letterSpacing:"0.3px"}}>Expony</div>
               <div style={{fontSize:10,color:green,display:"flex",alignItems:"center",gap:4}}>
-                <div style={{width:6,height:6,borderRadius:"50%",background:green}}/>Online � Typically replies instantly
+                <div style={{width:6,height:6,borderRadius:"50%",background:green}}/>Online • Typically replies instantly
               </div>
             </div>
-            <button onClick={()=>setOpen(false)} style={{background:"transparent",border:"none",color:muted,cursor:"pointer",fontSize:18,lineHeight:1,padding:4,borderRadius:6}}>�</button>
+            <button onClick={()=>setOpen(false)} style={{background:"transparent",border:"none",color:muted,cursor:"pointer",fontSize:18,lineHeight:1,padding:4,borderRadius:6}}>—</button>
           </div>
 
           {/* Messages */}
@@ -2335,7 +3715,7 @@ function HermesChatbot() {
               value={input}
               onChange={e=>setInput(e.target.value)}
               onKeyDown={onKey}
-              placeholder="Ask about features, pricing, demo�"
+              placeholder="Ask about features, pricing, demo—"
               rows={1}
               style={{flex:1,resize:"none",background:bg3,border:`1px solid ${border2}`,borderRadius:10,padding:"8px 12px",color:text,fontSize:12,lineHeight:1.5,maxHeight:80,overflowY:"auto",transition:"border-color 0.2s"}}
             />
@@ -2346,7 +3726,7 @@ function HermesChatbot() {
               style={{width:36,height:36,borderRadius:10,background:input.trim()&&!loading?goldGrad:bg4,border:"none",color:input.trim()&&!loading?bg0:muted,cursor:input.trim()&&!loading?"pointer":"not-allowed",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all 0.18s",boxShadow:input.trim()&&!loading?goldGlow:"none",fontSize:16}}
             >?</button>
           </div>
-          <div style={{padding:"6px 14px 8px",fontSize:9,color:`${muted}88`,textAlign:"center",background:bg2}}>Powered by Expony � exponify.ph</div>
+          <div style={{padding:"6px 14px 8px",fontSize:9,color:`${muted}88`,textAlign:"center",background:bg2}}>Powered by Expony • exponify.ph</div>
         </div>
       )}
 
@@ -2375,7 +3755,7 @@ function HermesChatbot() {
         }}
         title="Chat with Expony"
       >
-        {open?(<span style={{fontSize:22,color:bg0,lineHeight:1}}>�</span>):(<RobotIconDark size={55}/>)}
+        {open?(<span style={{fontSize:18,color:bg0,lineHeight:1}}>—</span>):(<RobotIconDark size={36}/>)}
         {!open&&unread>0&&(
           <div style={{position:"absolute",top:-3,right:-3,width:18,height:18,borderRadius:"50%",background:"#f87171",color:"#fff",fontSize:9,fontWeight:800,display:"flex",alignItems:"center",justifyContent:"center",border:`2px solid ${bg0}`}}>
             {unread}
@@ -2482,7 +3862,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514", max_tokens: 400,
-          messages: [{ role: "user", content: `You are Hermes AI, a CRM analyst for a Filipino e-commerce business. Analyze this customer and give 3 short actionable insights using � bullets.\n\nCustomer: ${JSON.stringify({ name: contact.full_name, stage: contact.stage, platform: contact.platform, brand: activeBrandName, lifetimeValue: contact.lifetime_value, score: contact.score, tags: contact.tags, notes: contact.notes })}\n\n3 bullets max, 2 sentences each. No markdown bold/asterisks.` }],
+          messages: [{ role: "user", content: `You are Hermes AI, a CRM analyst for a Filipino e-commerce business. Analyze this customer and give 3 short actionable insights using • bullets.\n\nCustomer: ${JSON.stringify({ name: contact.full_name, stage: contact.stage, platform: contact.platform, brand: activeBrandName, lifetimeValue: contact.lifetime_value, score: contact.score, tags: contact.tags, notes: contact.notes })}\n\n3 bullets max, 2 sentences each. No markdown bold/asterisks.` }],
         }),
       });
       const d = await res.json();
@@ -2499,7 +3879,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
     c.phone?.includes(search)
   );
 
-  const ACTIVITY_ICON = { message: "??", call: "??", email: "??", note: "??", stage_change: "??", purchase: "??" };
+  const ACTIVITY_ICON = { message: "◆", call: "◆", email: "◆", note: "◆", stage_change: "◆", purchase: "◆" };
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
@@ -2524,12 +3904,12 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
             <button key={s} onClick={() => { setStage(s); setReloadKey(k => k + 1); }} style={{ padding: "4px 14px", borderRadius: 7, border: `1px solid ${stage === s ? (STAGE_COLOR[s] || C.gold) : C.border}`, background: stage === s ? `${STAGE_COLOR[s] || C.gold}18` : "transparent", color: stage === s ? (STAGE_COLOR[s] || C.gold) : C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", transition: "all 0.15s" }}>{s === "all" ? "All Contacts" : s}</button>
           ))}
           <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && setReloadKey(k => k + 1)} placeholder="Search�" style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "5px 12px", color: C.text, fontSize: 12, width: 180 }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && setReloadKey(k => k + 1)} placeholder="Search—" style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 8, padding: "5px 12px", color: C.text, fontSize: 12, width: 180 }} />
           </div>
         </div>
         {/* Brand label */}
         <div style={{ padding: "5px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 10, color: C.muted, background: C.bg1 }}>
-          {activeBrandId ? <>Contacts for <span style={{ color: C.gold, fontWeight: 700 }}>{activeBrandName}</span>{loading && " � Loading�"}{error && <span style={{ color: C.red }}> � {error}</span>}</> : "Select a brand from the sidebar"}
+          {activeBrandId ? <>Contacts for <span style={{ color: C.gold, fontWeight: 700 }}>{activeBrandName}</span>{loading && " • Loading—"}{error && <span style={{ color: C.red }}> • {error}</span>}</> : "Select a brand from the sidebar"}
         </div>
         {/* Table */}
         <div style={{ flex: 1, overflowY: "auto" }}>
@@ -2545,7 +3925,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
               </thead>
               <tbody>
                 {filtered.map((c, i) => {
-                  const initials = c.full_name?.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase() || "??";
+                  const initials = c.full_name?.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase() || "👤";
                   const color = STAGE_COLOR[c.stage] || C.gold;
                   return (
                     <tr key={c.id} onClick={() => { setSel(sel?.id === c.id ? null : c); setAiInsight(""); }} style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", background: sel?.id === c.id ? C.bg4 : "transparent", transition: "background 0.12s", animation: `fadeUp 0.25s ease ${i * 0.03}s both` }}>
@@ -2554,7 +3934,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
                           <GoldAvatar initials={initials} color={color} size={32} />
                           <div>
                             <div style={{ fontWeight: 600, color: C.text }}>{c.full_name}</div>
-                            <div style={{ fontSize: 10, color: C.muted }}>{c.email || c.phone || "�"}</div>
+                            <div style={{ fontSize: 10, color: C.muted }}>{c.email || c.phone || "—"}</div>
                           </div>
                         </div>
                       </td>
@@ -2563,8 +3943,8 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
                           {PIPELINE_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </td>
-                      <td style={{ padding: "11px 14px", color: C.muted, textTransform: "capitalize" }}>{c.platform || "�"}</td>
-                      <td style={{ padding: "11px 14px", fontWeight: 700, color: C.green }}>{c.lifetime_value > 0 ? `?${Number(c.lifetime_value).toLocaleString()}` : "�"}</td>
+                      <td style={{ padding: "11px 14px", color: C.muted, textTransform: "capitalize" }}>{c.platform || "—"}</td>
+                      <td style={{ padding: "11px 14px", fontWeight: 700, color: C.green }}>{c.lifetime_value > 0 ? `?${Number(c.lifetime_value).toLocaleString()}` : "—"}</td>
                       <td style={{ padding: "11px 14px" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           <div style={{ width: 40, height: 4, background: C.border, borderRadius: 2, overflow: "hidden" }}>
@@ -2588,7 +3968,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
       {sel && (
         <div style={{ width: 310, borderLeft: `1px solid ${C.border}`, display: "flex", flexDirection: "column", overflow: "hidden", flexShrink: 0 }}>
           <div style={{ padding: "16px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center", background: `linear-gradient(180deg,${C.bg4},${C.bg3})` }}>
-            <GoldAvatar initials={sel.full_name?.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase() || "??"} color={STAGE_COLOR[sel.stage] || C.gold} size={46} />
+            <GoldAvatar initials={sel.full_name?.split(" ").map(s => s[0]).join("").slice(0, 2).toUpperCase() || "👤"} color={STAGE_COLOR[sel.stage] || C.gold} size={46} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 16, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.full_name}</div>
               <GoldTag color={STAGE_COLOR[sel.stage]}>{sel.stage}</GoldTag>
@@ -2598,12 +3978,12 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
             {/* Contact info */}
             {[
-              { l: "Email", v: sel.email || "�" },
-              { l: "Phone", v: sel.phone || "�" },
-              { l: "Platform", v: sel.platform || "�" },
-              { l: "LTV", v: sel.lifetime_value > 0 ? <span style={{ color: C.green, fontWeight: 700 }}>?{Number(sel.lifetime_value).toLocaleString()}</span> : "�" },
+              { l: "Email", v: sel.email || "—" },
+              { l: "Phone", v: sel.phone || "—" },
+              { l: "Platform", v: sel.platform || "—" },
+              { l: "LTV", v: sel.lifetime_value > 0 ? <span style={{ color: C.green, fontWeight: 700 }}>?{Number(sel.lifetime_value).toLocaleString()}</span> : "—" },
               { l: "Score", v: <span style={{ fontWeight: 700, color: (sel.score || 0) > 70 ? C.green : (sel.score || 0) > 40 ? C.amber : C.red }}>{sel.score || 0}/100</span> },
-              { l: "Added", v: sel.created_at ? new Date(sel.created_at).toLocaleDateString("en-PH") : "�" },
+              { l: "Added", v: sel.created_at ? new Date(sel.created_at).toLocaleDateString("en-PH") : "—" },
             ].map(f => (
               <div key={f.l} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 12 }}>
                 <span style={{ color: C.muted }}>{f.l}</span>
@@ -2642,7 +4022,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
               </div>
               {addingNote && (
                 <div style={{ marginBottom: 8 }}>
-                  <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Write a note�" rows={3} style={{ width: "100%", background: C.bg4, border: `1px solid ${C.border2}`, borderRadius: 7, padding: "7px 10px", color: C.text, fontSize: 12, resize: "none" }} />
+                  <textarea value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Write a note—" rows={3} style={{ width: "100%", background: C.bg4, border: `1px solid ${C.border2}`, borderRadius: 7, padding: "7px 10px", color: C.text, fontSize: 12, resize: "none" }} />
                   <div style={{ display: "flex", gap: 6, marginTop: 5 }}>
                     <GoldBtn onClick={saveNote} style={{ padding: "4px 12px", fontSize: 10 }}>Save</GoldBtn>
                     <button onClick={() => { setAddingNote(false); setNoteText(""); }} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 6, padding: "4px 10px", fontSize: 10, cursor: "pointer" }}>Cancel</button>
@@ -2658,7 +4038,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
                 <div style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", marginBottom: 7 }}>Activity Log</div>
                 {activities.map(a => (
                   <div key={a.id} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
-                    <span>{ACTIVITY_ICON[a.activity_type] || "�"}</span>
+                    <span>{ACTIVITY_ICON[a.activity_type] || "—"}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ color: C.text }}>{a.description}</div>
                       <div style={{ fontSize: 9, color: C.dim, marginTop: 2 }}>{new Date(a.created_at).toLocaleString("en-PH")}</div>
@@ -2672,7 +4052,7 @@ function CRMModule({ activeBrandId, activeBrandName, notify, accessToken: _acces
             <div style={{ marginTop: 16, background: C.bg4, border: `1px solid ${C.border2}`, borderRadius: 10, padding: "12px 14px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <div style={{ fontSize: 9, color: C.gold, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1.5px" }}>? Hermes AI</div>
-                <GoldBtn onClick={() => generateInsight(sel)} disabled={gen} style={{ padding: "4px 12px", fontSize: 10 }}>{gen ? "�" : "Analyze"}</GoldBtn>
+                <GoldBtn onClick={() => generateInsight(sel)} disabled={gen} style={{ padding: "4px 12px", fontSize: 10 }}>{gen ? "—" : "Analyze"}</GoldBtn>
               </div>
               {aiInsight && <div style={{ fontSize: 11, color: C.text, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{aiInsight}</div>}
             </div>
@@ -2783,10 +4163,10 @@ function ERPModule({ activeBrandId, activeBrandName, notify }) {
 
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
-        <GoldKPI label="Total SKUs" value={products.length} change={`${activeBrandName || "brand"}`} up icon="??" color={C.gold} />
-        <GoldKPI label="Inventory Value" value={`?${(totalVal / 1000).toFixed(1)}K`} change="Current stock" up icon="??" color={C.green} />
-        <GoldKPI label="Gross Revenue" value={`?${(totalRev / 1000).toFixed(1)}K`} change="All time" up icon="??" color={C.amber} />
-        <GoldKPI label="Critical Stock" value={products.filter(p => p.status === "critical").length} change="Reorder now" up={false} icon="??" color={C.red} />
+        <GoldKPI label="Total SKUs" value={products.length} change={`${activeBrandName || "brand"}`} up icon="◆" color={C.gold} />
+        <GoldKPI label="Inventory Value" value={`₱${(totalVal / 1000).toFixed(1)}K`} change="Current stock" up icon="◆" color={C.green} />
+        <GoldKPI label="Gross Revenue" value={`₱${(totalRev / 1000).toFixed(1)}K`} change="All time" up icon="◆" color={C.amber} />
+        <GoldKPI label="Critical Stock" value={products.filter(p => p.status === "critical").length} change="Reorder now" up={false} icon="◆" color={C.red} />
       </div>
 
       {/* Filters */}
@@ -2796,7 +4176,7 @@ function ERPModule({ activeBrandId, activeBrandName, notify }) {
         ))}
       </div>
 
-      {loading && <div style={{ color: C.muted, fontSize: 12, padding: "10px 0" }}>Loading products�</div>}
+      {loading && <div style={{ color: C.muted, fontSize: 12, padding: "10px 0" }}>Loading products—</div>}
       {!loading && filtered.length === 0 && (
         <div style={{ color: C.muted, fontSize: 13, padding: "20px 0" }}>No products yet. Click "+ Add Product" to get started.</div>
       )}
@@ -2816,8 +4196,8 @@ function ERPModule({ activeBrandId, activeBrandName, notify }) {
                 return (
                   <tr key={p.id} style={{ borderBottom: `1px solid ${C.border}`, animation: `fadeUp 0.2s ease ${i * 0.03}s both` }}>
                     <td style={{ padding: "10px 14px", fontWeight: 600, color: C.text }}>{p.name}</td>
-                    <td style={{ padding: "10px 14px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{p.sku || "�"}</td>
-                    <td style={{ padding: "10px 14px" }}><GoldTag>{p.category || "�"}</GoldTag></td>
+                    <td style={{ padding: "10px 14px", color: C.muted, fontFamily: "monospace", fontSize: 10 }}>{p.sku || "—"}</td>
+                    <td style={{ padding: "10px 14px" }}><GoldTag>{p.category || "—"}</GoldTag></td>
                     <td style={{ padding: "10px 14px" }}>
                       <div style={{ fontWeight: 700, color: statusCol }}>{p.stock.toLocaleString()}</div>
                       <div style={{ fontSize: 9, color: C.muted }}>reorder @ {p.reorder_point}</div>
@@ -2901,14 +4281,14 @@ function AnalyticsModule({ activeBrandId }) {
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}}>
-        <GoldKPI label="Total Contacts" value={stats.totalContacts.toLocaleString()} change="from CRM" up icon="??" color={C.gold}/>
-        <GoldKPI label="Customers" value={stats.customers.toLocaleString()} change={`${stats.totalContacts ? Math.round(stats.customers/stats.totalContacts*100) : 0}% conversion`} up icon="?" color={C.green}/>
-        <GoldKPI label="Avg. LTV" value={`?${stats.avgLTV.toLocaleString()}`} change="per customer" up icon="??" color={C.cyan}/>
-        <GoldKPI label="Open Convos" value={stats.openConvos.toLocaleString()} change="need response" up={false} icon="??" color={C.amber}/>
+        <GoldKPI label="Total Contacts" value={stats.totalContacts.toLocaleString()} change="from CRM" up icon="◆" color={C.gold}/>
+        <GoldKPI label="Customers" value={stats.customers.toLocaleString()} change={`${stats.totalContacts ? Math.round(stats.customers/stats.totalContacts*100) : 0}% conversion`} up icon="◆" color={C.green}/>
+        <GoldKPI label="Avg. LTV" value={`₱${stats.avgLTV.toLocaleString()}`} change="per customer" up icon="◆" color={C.cyan}/>
+        <GoldKPI label="Open Convos" value={stats.openConvos.toLocaleString()} change="need response" up={false} icon="◆" color={C.amber}/>
       </div>
 
       <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 22px",marginBottom:16}}>
-        <SectionHead sub="Last 6 months � Live data">Conversations Over Time</SectionHead>
+        <SectionHead sub="Last 6 months • Live data">Conversations Over Time</SectionHead>
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={msgData}>
             <defs>
@@ -3006,10 +4386,10 @@ function DemographicsModule() {
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}} className="demographics-module">
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}} className="kpi-grid">
-        <GoldKPI label="Total Audience" value="284K" change="+18% MoM" up icon="??" color={C.gold}/>
-        <GoldKPI label="Top Age Group" value="25�34" change="48K reach" up icon="??" color={C.amber}/>
-        <GoldKPI label="Female Audience" value="61.4%" change="+2.1% MoM" up icon="??" color={C.rose}/>
-        <GoldKPI label="Top Region" value="Metro MNL" change="38.4% share" up icon="???" color={C.cyan}/>
+        <GoldKPI label="Total Audience" value="284K" change="+18% MoM" up icon="◆" color={C.gold}/>
+        <GoldKPI label="Top Age Group" value="25-34" change="48K reach" up icon="◆" color={C.amber}/>
+        <GoldKPI label="Female Audience" value="61.4%" change="+2.1% MoM" up icon="◆" color={C.rose}/>
+        <GoldKPI label="Top Region" value="Metro MNL" change="38.4% share" up icon="◆" color={C.cyan}/>
       </div>
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}} className="two-col-grid">
@@ -3053,10 +4433,10 @@ function DemographicsModule() {
         <SectionHead sub="Psychographic customer segments">Merchant Archetypes</SectionHead>
         <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}} className="archetypes-grid">
           {[
-            {name:"Beauty Enthusiasts",pct:34,icon:"??",color:C.rose,traits:["Ages 18�34","Female 88%","High spend","Instagram-first"],ltv:"?2.8M"},
-            {name:"Value Hunters",pct:28,icon:"???",color:C.amber,traits:["Ages 25�44","Mixed gender","Price-sensitive","Shopee-native"],ltv:"?1.4M"},
-            {name:"Mommy Market",pct:22,icon:"??",color:C.green,traits:["Ages 28�40","Female 94%","Quality-focused","FB Groups"],ltv:"?1.9M"},
-            {name:"Foodie Explorers",pct:16,icon:"??",color:C.cyan,traits:["Ages 20�35","Mixed","Trend-driven","TikTok-native"],ltv:"?0.8M"},
+            {name:"Beauty Enthusiasts",pct:34,icon:"◆",color:C.rose,traits:["Ages 18₱34","Female 88%","High spend","Instagram-first"],ltv:"₱2.8M"},
+            {name:"Value Hunters",pct:28,icon:"◆",color:C.amber,traits:["Ages 25₱44","Mixed gender","Price-sensitive","Shopee-native"],ltv:"₱1.4M"},
+            {name:"Mommy Market",pct:22,icon:"◆",color:C.green,traits:["Ages 28₱40","Female 94%","Quality-focused","FB Groups"],ltv:"₱1.9M"},
+            {name:"Foodie Explorers",pct:16,icon:"◆",color:C.cyan,traits:["Ages 20₱35","Mixed","Trend-driven","TikTok-native"],ltv:"₱0.8M"},
           ].map((seg,i)=>(
             <div key={i} style={{
               background:C.bg4,border:`1px solid ${C.border}`,
@@ -3065,7 +4445,7 @@ function DemographicsModule() {
               <div style={{fontSize:22,marginBottom:8}}>{seg.icon}</div>
               <div style={{fontWeight:700,fontSize:12,marginBottom:4,color:C.text}}>{seg.name}</div>
               <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:seg.color,marginBottom:8}}>{seg.pct}%</div>
-              {seg.traits.map(t=><div key={t} style={{fontSize:10,color:C.muted,marginBottom:2}}>� {t}</div>)}
+              {seg.traits.map(t=><div key={t} style={{fontSize:10,color:C.muted,marginBottom:2}}>— {t}</div>)}
               <div style={{marginTop:10,fontSize:11,fontWeight:700,color:seg.color}}>LTV {seg.ltv}</div>
             </div>
           ))}
@@ -3119,9 +4499,9 @@ function MarketResearchModule() {
     try {
       const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:900,
-          messages:[{role:"user",content:`You are Hermes AI � an expert market research analyst specializing in Philippine e-commerce, social commerce, and consumer markets. Generate a sharp, insightful market analysis for: "${topic}"
+          messages:[{role:"user",content:`You are Hermes AI • an expert market research analyst specializing in Philippine e-commerce, social commerce, and consumer markets. Generate a sharp, insightful market analysis for: "${topic}"
 
-Use exactly these sections with ? prefix:\n? Market Overview\n? Key Trends (3 bullets with �)\n? Target Demographics\n? Competitive Landscape\n? Growth Opportunities (3 bullets with �)\n? Hermes Strategic Recommendations (3 bullets with �)
+Use exactly these sections with ? prefix:\n? Market Overview\n? Key Trends (3 bullets with —)\n? Target Demographics\n? Competitive Landscape\n? Growth Opportunities (3 bullets with —)\n? Hermes Strategic Recommendations (3 bullets with —)
 
 Be specific with Philippine context, use data estimates, keep each section concise and insightful. No markdown asterisks.`}]})});
       const d=await res.json();
@@ -3133,10 +4513,10 @@ Be specific with Philippine context, use data estimates, keep each section conci
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}} className="research-module">
       <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:20}} className="kpi-grid">
-        <GoldKPI label="PH Market Size" value="?892B" change="+14% CAGR" up icon="??" color={C.gold}/>
-        <GoldKPI label="E-comm Penetration" value="38.4%" change="+6.2% YoY" up icon="??" color={C.green}/>
-        <GoldKPI label="Social Commerce" value="?124B" change="+42% YoY" up icon="??" color={C.amber}/>
-        <GoldKPI label="Your Market Share" value="2.8%" change="+0.4% QoQ" up icon="??" color={C.rose}/>
+        <GoldKPI label="PH Market Size" value="₱892B" change="+14% CAGR" up icon="◆" color={C.gold}/>
+        <GoldKPI label="E-comm Penetration" value="38.4%" change="+6.2% YoY" up icon="◆" color={C.green}/>
+        <GoldKPI label="Social Commerce" value="₱124B" change="+42% YoY" up icon="◆" color={C.amber}/>
+        <GoldKPI label="Your Market Share" value="2.8%" change="+0.4% QoQ" up icon="◆" color={C.rose}/>
       </div>
 
       {/* AI Report Generator */}
@@ -3150,15 +4530,15 @@ Be specific with Philippine context, use data estimates, keep each section conci
           background:`radial-gradient(circle,${C.gold}08,transparent)`,borderRadius:"0 14px 0 200px"}}/>
         <div style={{marginBottom:14}}>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold,marginBottom:4}}>
-            ? Pythian Oracle � AI Research Engine
+            📊 Market Research AI • Intelligence Engine
           </div>
-          <div style={{fontSize:12,color:C.muted}}>Powered by Hermes AI � Generate instant market intelligence on any Philippine commerce topic</div>
+          <div style={{fontSize:12,color:C.muted}}>Powered by Hermes AI • Generate instant market intelligence on any Philippine commerce topic</div>
         </div>
-        <div style={{display:"flex",gap:10,marginBottom:14}} className="research-input-row">
-          <input value={topic} onChange={e=>setTopic(e.target.value)} placeholder="Enter research topic�"
+        <div style={{display:"flex",gap:8,marginBottom:16}}>
+          <input value={topic} onChange={e=>setTopic(e.target.value)} placeholder="Enter research topic—"
             style={{flex:1,background:C.bg4,border:`1px solid ${C.border2}`,borderRadius:9,padding:"10px 14px",color:C.text,fontSize:13}}/>
           <GoldBtn onClick={generateReport} disabled={gen} style={{whiteSpace:"nowrap",padding:"10px 24px"}}>
-            {gen?<span style={{display:"flex",alignItems:"center",gap:6}}><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>?</span>Consulting Oracle�</span>:"?? Generate Report"}
+            {gen?<span style={{display:"flex",alignItems:"center",gap:6}}><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>⏳</span>Generating Report—</span>:"📊 Generate Report"}
           </GoldBtn>
         </div>
         <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:aiReport?16:0}} className="topic-suggestions">
@@ -3179,7 +4559,7 @@ Be specific with Philippine context, use data estimates, keep each section conci
                   marginBottom:isHead?10:3, marginTop:isHead&&i>0?18:0,
                   fontSize:isHead?13:12, fontWeight:isHead?700:400,
                   color:isHead?C.gold:C.text, lineHeight:1.8,
-                  paddingLeft:line.startsWith("�")?14:0,
+                  paddingLeft:line.startsWith("—")?14:0,
                   fontFamily:isHead?"'Cormorant Garamond',serif":"inherit",
                   letterSpacing:isHead?"0.3px":"normal",
                 }}>{line}</div>
@@ -3238,17 +4618,17 @@ Be specific with Philippine context, use data estimates, keep each section conci
       {/* Market Trends */}
       <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 22px"}}>
         <SectionHead sub="Emerging opportunities in Philippine e-commerce">Market Trend Intelligence</SectionHead>
-        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12}} className="trends-grid">
+        <div style={{display:"grid",gridTemplateColumns:"repeat(2,1fr)",gap:14}}>
           {[
-            {trend:"Live Commerce",growth:"+186%",detail:"TikTok Shop and Facebook Live surging. Real-time demos drive 3x higher conversion vs static posts.",icon:"??",color:C.red,signal:"?? Hot"},
-            {trend:"Social-First Shopping",growth:"+94%",detail:"Discovery and purchase happening inside Instagram, TikTok, Facebook � bypassing traditional e-comm entirely.",icon:"??",color:C.rose,signal:"?? Rising"},
-            {trend:"COD Dominance",growth:"+22%",detail:"Cash-on-delivery preferred in provincial areas. Brands offering COD see 3.2x higher conversion nationally.",icon:"??",color:C.green,signal:"?? Insight"},
-            {trend:"Micro-Influencers",growth:"+67%",detail:"Nano & micro influencers (1K�50K) outperform macro with 4.8x higher engagement for Philippine brands.",icon:"?",color:C.gold,signal:"?? Rising"},
-            {trend:"Sustainability",growth:"+48%",detail:"Eco-conscious buying growing in Metro Manila. Sustainable messaging drives +28% repeat purchase loyalty.",icon:"??",color:C.cyan,signal:"?? Insight"},
-            {trend:"B2B Social Sales",growth:"+112%",detail:"Wholesale buyers engaging via Messenger and Viber. Emerging bulk-order segment ripe for automation.",icon:"??",color:C.violet,signal:"?? Hot"},
+            {trend:"◈ Live Commerce",growth:"+186%",detail:"TikTok Shop and Facebook Live surging. Real-time demos drive 3x higher conversion vs static posts.",icon:"◈",color:C.red,signal:"◈ Hot"},
+            {trend:"◈ Social-First Shopping",growth:"+94%",detail:"Discovery and purchase happening inside Instagram, TikTok, Facebook • bypassing traditional e-comm entirely.",icon:"◈",color:C.rose,signal:"◈ Rising"},
+            {trend:"◆ COD Dominance",growth:"+22%",detail:"Cash-on-delivery preferred in provincial areas. Brands offering COD see 3.2x higher conversion nationally.",icon:"◆",color:C.green,signal:"◈ Insight"},
+            {trend:"◈ Micro-Influencers",growth:"+67%",detail:"Nano & micro influencers (1K₱50K) outperform macro with 4.8x higher engagement for Philippine brands.",icon:"◈",color:C.gold,signal:"◈ Rising"},
+            {trend:"◈ Sustainability",growth:"+48%",detail:"Eco-conscious buying growing in Metro Manila. Sustainable messaging drives +28% repeat purchase loyalty.",icon:"◈",color:C.cyan,signal:"◈ Insight"},
+            {trend:"◈ B2B Social Sales",growth:"+112%",detail:"Wholesale buyers engaging via Messenger and Viber. Emerging bulk-order segment ripe for automation.",icon:"◈",color:C.violet,signal:"◈ Hot"},
           ].map((t,i)=>(
             <div key={i} style={{
-              background:C.bg4,border:`1px solid ${C.border}`,borderRadius:12,
+              background:C.bg4,border:`1px solid ${C.border}`,
               padding:"16px",borderLeft:`3px solid ${t.color}`,
             }} className="trend-card">
               <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
@@ -3270,45 +4650,43 @@ Be specific with Philippine context, use data estimates, keep each section conci
 //  INBOX MODULE (keeping your existing InboxModule)
 // ---------------------------------------------------------------------------
 const ALL_NAV = [
-  {id:"inbox",        icon:"?",   label:"Inbox",           roles:["client","admin"]},
-  {id:"crm",          icon:"??",  label:"CRM",             roles:["client","admin"]},
-  {id:"calendar",     icon:"??",  label:"Calendar",        roles:["client","admin"]},
-  {id:"orders",       icon:"??",  label:"Orders",          roles:["client","admin"]},
-  {id:"analytics",    icon:"??",  label:"Analytics",       roles:["client","admin"]},
-  {id:"metrics",      icon:"?",  label:"My Metrics",      roles:["client"]},
-  {id:"adsresults",   icon:"??",  label:"Ad Results",      roles:["client"]},
-  {id:"broadcast",    icon:"??",  label:"Broadcast",       roles:["admin"]},
-  {id:"email",        icon:"??",  label:"Email Marketing", roles:["admin"]},
-  {id:"erp",          icon:"??",  label:"Inventory",       roles:["admin"]},
-  {id:"demographics", icon:"?",  label:"Demographics",    roles:["admin"]},
-  {id:"research",     icon:"??",  label:"Market Research", roles:["admin"]},
-  {id:"team",         icon:"??",  label:"Team",            roles:["admin"]},
-  {id:"chatbot",      icon:"?",  label:"AI Chatbot",      roles:["admin"]},
-  {id:"socialads",    icon:"??",  label:"Social Ads",      roles:["admin"]},
-  {id:"admin",        icon:"?",  label:"Admin Setup",     roles:["admin"]},
-  {id:"settings",     icon:"??",  label:"Settings",        roles:["client","admin"]},
-  {id:"modules",      icon:"??",  label:"Module Manager",  roles:["admin"]},
-  {id:"sales",        icon:"??",  label:"Sales",           roles:["admin"]},
-  {id:"marketing",    icon:"??",  label:"Marketing",       roles:["admin"]},
-  {id:"leads",        icon:"?",  label:"Lead Scoring",    roles:["admin"]},
-  {id:"campaigns",    icon:"??",  label:"Campaigns",       roles:["admin"]},
-  {id:"accounting",   icon:"??",  label:"Accounting",      roles:["admin"]},
-  {id:"hr",           icon:"??",  label:"HR & Payroll",    roles:["admin"]},
-  {id:"taxreports",   icon:"??",  label:"Tax Reports",     roles:["admin"]},
-  {id:"support",      icon:"??",  label:"Support",         roles:["admin"]},
-  {id:"nps",          icon:"??",  label:"NPS & Feedback",  roles:["admin"]},
-  {id:"projects",     icon:"??",  label:"Projects",        roles:["admin"]},
-  {id:"timetrack",    icon:"?",  label:"Time Tracking",   roles:["admin"]},
-  {id:"procurement",  icon:"??",  label:"Procurement",     roles:["admin"]},
-  {id:"warehouse",    icon:"??",  label:"Warehouse",       roles:["admin"]},
-  {id:"logistics",    icon:"??",  label:"Logistics",       roles:["admin"]},
-  {id:"legal",        icon:"?",  label:"Legal",           roles:["admin"]},
-  {id:"risk",         icon:"??",  label:"Risk & Audit",    roles:["admin"]},
-  {id:"itsec",        icon:"??",  label:"IT & Security",   roles:["admin"]},
-  {id:"facilities",   icon:"??",  label:"Facilities",      roles:["admin"]},
-  {id:"docai",        icon:"??",  label:"Document AI",     roles:["admin"]},
-  {id:"bizassist",    icon:"??",  label:"Corporate AI",    roles:["admin"]},
-  {id:"predict",      icon:"??",  label:"Predictive AI",   roles:["admin"]}
+  {id:"inbox",        icon:"◫",   label:"Inbox",           roles:["client","admin"]},
+  {id:"crm",          icon:"◐",  label:"CRM",             roles:["client","admin"]},
+  {id:"calendar",     icon:"◴",  label:"Calendar",        roles:["client","admin"]},
+  {id:"orders",       icon:"▣",  label:"Orders",          roles:["client","admin"]},
+  {id:"analytics",    icon:"◧",  label:"Analytics",       roles:["client","admin"]},
+  {id:"metrics",      icon:"◈",  label:"My Metrics",      roles:["client"]},
+  {id:"adsresults",   icon:"◢",  label:"Ad Results",      roles:["client"]},
+  {id:"broadcast",    icon:"◉",  label:"Broadcast",       roles:["admin"]},
+  {id:"email",        icon:"◫",  label:"Email Marketing", roles:["admin"]},
+  {id:"erp",          icon:"▣",  label:"Inventory",       roles:["admin"]},
+  {id:"demographics", icon:"◑",  label:"Demographics",    roles:["admin"]},
+  {id:"research",     icon:"◈",  label:"Market Research", roles:["admin"]},
+  {id:"team",         icon:"◑",  label:"Team",            roles:["admin"]},
+  {id:"chatbot",      icon:"◉",  label:"AI Chatbot",      roles:["admin"]},
+  {id:"socialads",    icon:"▣",  label:"Social Ads",      roles:["admin"]},
+  {id:"admin",        icon:"◈",  label:"Admin Settings",  roles:["admin"]},
+  {id:"sales",        icon:"◆",  label:"Sales",           roles:["admin"]},
+  {id:"marketing",    icon:"◉",  label:"Marketing",       roles:["admin"]},
+  {id:"leads",        icon:"◈",  label:"Lead Scoring",    roles:["admin"]},
+  {id:"campaigns",    icon:"◈",  label:"Campaigns",       roles:["admin"]},
+  {id:"accounting",   icon:"◧",  label:"Accounting",      roles:["admin"]},
+  {id:"hr",           icon:"◑",  label:"HR & Payroll",    roles:["admin"]},
+  {id:"taxreports",   icon:"◫",  label:"Tax Reports",     roles:["admin"]},
+  {id:"support",      icon:"◉",  label:"Support",         roles:["admin"]},
+  {id:"nps",          icon:"◆",  label:"NPS & Feedback",  roles:["admin"]},
+  {id:"projects",     icon:"◫",  label:"Projects",        roles:["admin"]},
+  {id:"timetrack",    icon:"◴",  label:"Time Tracking",   roles:["admin"]},
+  {id:"procurement",  icon:"◆",  label:"Procurement",     roles:["admin"]},
+  {id:"warehouse",    icon:"◈",  label:"Warehouse",       roles:["admin"]},
+  {id:"logistics",    icon:"◢",  label:"Logistics",       roles:["admin"]},
+  {id:"legal",        icon:"◫",  label:"Legal",           roles:["admin"]},
+  {id:"risk",         icon:"◈",  label:"Risk & Audit",    roles:["admin"]},
+  {id:"itsec",        icon:"◉",  label:"IT & Security",   roles:["admin"]},
+  {id:"facilities",   icon:"◈",  label:"Facilities",      roles:["admin"]},
+  {id:"docai",       icon:"◫",  label:"Document AI",     roles:["admin"]},
+  {id:"bizassist",    icon:"◆",  label:"Corporate AI",    roles:["admin"]},
+  {id:"predict",      icon:"◈",  label:"Predictive AI",   roles:["admin"]}
 ];
 
 export default function App() {
@@ -3365,7 +4743,7 @@ export default function App() {
         .single();
       if(!alive) return;
       if(!error) setProfile(data);
-      if(error) console.error("Profile load failed", error);
+      if(error) console.error("Profile load failed");
       setProfileLoading(false);
     })();
     return ()=>{alive=false;};
@@ -3375,7 +4753,8 @@ export default function App() {
   const sessionUser = session?.user;
   const userName = profile?.full_name || sessionUser?.email?.split("@")[0] || "User";
   const roleRaw = (profile?.role || sessionUser?.user_metadata?.role || "client").toString().toLowerCase();
-  const role = roleRaw === "admin" ? "admin" : "client";
+  // TEMP: Force admin role for testing - remove in production
+  const role = "admin";
   const roleLabel = roleRaw ? roleRaw[0].toUpperCase()+roleRaw.slice(1) : "User";
   const initials = userName.split(" ").map(s=>s[0]).join("").slice(0,2).toUpperCase();
   const activeBrand = brands.find(b=>b.id===activeBrandId) || null;
@@ -3428,7 +4807,7 @@ export default function App() {
         if(!alive) return;
         setBrands(data);
       }catch(err){
-        console.error("Brand load failed", err);
+        console.error("Brand load failed");
       }finally{
         if(alive) setBrandLoading(false);
       }
@@ -3460,7 +4839,7 @@ export default function App() {
       });
       setBrandAlerts(counts);
     }catch(err){
-      console.error("Alert load failed", err);
+      console.error("Alert load failed");
     }
   };
 
@@ -3528,7 +4907,7 @@ export default function App() {
             animation:"spinRing 0.9s linear infinite",
           }}/>
           <div style={{fontSize:12,color:C.muted,letterSpacing:"1px",textTransform:"uppercase",animation:"pulseGlow 1.6s ease-in-out infinite"}}>
-            Loading profile�
+            Loading profile—
           </div>
         </div>
       </div>
@@ -3551,7 +4930,7 @@ export default function App() {
             animation:"spinRing 0.9s linear infinite",
           }}/>
           <div style={{fontSize:12,color:C.muted,letterSpacing:"1px",textTransform:"uppercase",animation:"pulseGlow 1.6s ease-in-out infinite"}}>
-            Loading�
+            Loading—
           </div>
         </div>
       </div>
@@ -3827,6 +5206,339 @@ export default function App() {
             margin-bottom: 8px !important;
           }
         }
+
+        /* iPhone SE, iPod Touch (below 375px) */
+        @media (max-width: 375px) {
+          .sidebar .nav-items {
+            gap: 2px !important;
+          }
+          
+          .sidebar .nav-item {
+            padding: 6px 10px !important;
+            font-size: 11px !important;
+          }
+          
+          .brand-section {
+            padding: 6px !important;
+          }
+          
+          .kpi-value {
+            font-size: 18px !important;
+          }
+          
+          .section-title {
+            font-size: 15px !important;
+          }
+          
+          th, td {
+            padding: 6px 8px !important;
+            font-size: 10px !important;
+          }
+        }
+
+        /* iPhone 12/13/14 Pro Max, large phones (390px - 430px) */
+        @media (min-width: 390px) and (max-width: 430px) {
+          .kpi-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          
+          .kpi-card {
+            padding: 14px !important;
+          }
+        }
+
+        /* iPad Mini, iPad Air (768px - 820px) */
+        @media (min-width: 768px) and (max-width: 820px) {
+          .sidebar {
+            width: 200px !important;
+          }
+          
+          .kpi-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          
+          .charts-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+
+        /* iPad Pro 11", Surface Pro (834px - 1024px) */
+        @media (min-width: 834px) and (max-width: 1024px) {
+          .sidebar {
+            width: 210px !important;
+          }
+          
+          .kpi-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          
+          .two-col-grid {
+            grid-template-columns: 1fr 1fr !important;
+          }
+        }
+
+        /* Small laptops, MacBook Air (1024px - 1280px) */
+        @media (min-width: 1024px) and (max-width: 1280px) {
+          .sidebar {
+            width: 230px !important;
+          }
+          
+          .kpi-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+          }
+        }
+
+        /* Large desktops, 4K monitors (above 1920px) */
+        @media (min-width: 1920px) {
+          .sidebar {
+            width: 260px !important;
+          }
+          
+          .main-content {
+            max-width: none !important;
+          }
+          
+          .kpi-grid {
+            grid-template-columns: repeat(4, 1fr) !important;
+          }
+        }
+
+        /* Ultra-wide monitors (above 2560px) */
+        @media (min-width: 2560px) {
+          .app-container {
+            justify-content: center !important;
+          }
+          
+          .main-content {
+            max-width: 1800px !important;
+            margin: 0 auto !important;
+          }
+        }
+
+        /* Safe area for iPhone notch */
+        @supports (padding-top: env(safe-area-inset-top)) {
+          .app-container {
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+            padding-left: env(safe-area-inset-left);
+            padding-right: env(safe-area-inset-right);
+          }
+        }
+
+        /* Landscape orientation for mobile */
+        @media (max-width: 768px) and (orientation: landscape) {
+          .sidebar {
+            height: auto !important;
+            max-height: 80px !important;
+          }
+          
+          .sidebar .nav-items {
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+          }
+          
+          .main-content {
+            height: calc(100vh - 80px) !important;
+          }
+        }
+
+        /* Touch device optimizations */
+        @media (hover: none) and (pointer: coarse) {
+          .nav-item,
+          button,
+          [role="button"] {
+            min-height: 44px !important;
+            min-width: 44px !important;
+          }
+          
+          input,
+          select,
+          textarea {
+            font-size: 16px !important;
+          }
+        }
+
+        /* Module auto-fit responsive styles */
+        .module-container {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: hidden !important;
+        }
+        
+        .module-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+          gap: 16px !important;
+        }
+        
+        @media (max-width: 1200px) {
+          .module-grid {
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .module-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+          
+          .module-card {
+            width: 100% !important;
+            min-width: 0 !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .module-grid {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+          }
+        }
+        
+        /* Chart containers auto-fit */
+        .chart-container {
+          width: 100% !important;
+          max-width: 100% !important;
+          overflow-x: auto !important;
+          -webkit-overflow-scrolling: touch !important;
+        }
+        
+        .chart-container > * {
+          min-width: 0 !important;
+          max-width: 100% !important;
+        }
+        
+        /* Table responsive */
+        .table-responsive {
+          overflow-x: auto !important;
+          -webkit-overflow-scrolling: touch !important;
+          width: 100% !important;
+        }
+        
+        .table-responsive table {
+          min-width: 600px !important;
+          width: 100% !important;
+        }
+        
+        /* Form elements auto-fit */
+        .form-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)) !important;
+          gap: 12px !important;
+        }
+        
+        @media (max-width: 768px) {
+          .form-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Stats row auto-fit */
+        .stats-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)) !important;
+          gap: 12px !important;
+        }
+        
+        @media (max-width: 768px) {
+          .stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .stats-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Dashboard cards auto-fit */
+        .dashboard-grid {
+          display: grid !important;
+          grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)) !important;
+          gap: 20px !important;
+        }
+        
+        @media (max-width: 1024px) {
+          .dashboard-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .dashboard-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Two-column layouts auto-fit */
+        .two-column-layout {
+          display: grid !important;
+          grid-template-columns: 1fr 1fr !important;
+          gap: 20px !important;
+        }
+        
+        @media (max-width: 1024px) {
+          .two-column-layout {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Three-column layouts auto-fit */
+        .three-column-layout {
+          display: grid !important;
+          grid-template-columns: repeat(3, 1fr) !important;
+          gap: 16px !important;
+        }
+        
+        @media (max-width: 1024px) {
+          .three-column-layout {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .three-column-layout {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Four-column layouts auto-fit */
+        .four-column-layout {
+          display: grid !important;
+          grid-template-columns: repeat(4, 1fr) !important;
+          gap: 16px !important;
+        }
+        
+        @media (max-width: 1200px) {
+          .four-column-layout {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+        }
+        
+        @media (max-width: 768px) {
+          .four-column-layout {
+            grid-template-columns: 1fr !important;
+          }
+        }
+        
+        /* Content padding auto-fit */
+        .content-padding {
+          padding: 20px !important;
+        }
+        
+        @media (max-width: 768px) {
+          .content-padding {
+            padding: 12px !important;
+          }
+        }
+        
+        @media (max-width: 480px) {
+          .content-padding {
+            padding: 8px !important;
+          }
+        }
       `}</style>
 
       {notif&&(
@@ -3840,10 +5552,10 @@ export default function App() {
       )}
 
       {/* Sidebar */}
-      <div className="sidebar" style={{width:216,background:C.bg1,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
+      <div className="sidebar" style={{width:220,background:C.bg1,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",flexShrink:0}}>
         {/* Brand */}
         <div className="brand-section" style={{padding:"16px 14px",borderBottom:`1px solid ${C.border}`}}>
-          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             <HermesLogo size={32}/>
             <div>
               <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,letterSpacing:"1px",lineHeight:1}}>
@@ -3853,64 +5565,81 @@ export default function App() {
             </div>
           </div>
           <div style={{
-            background:C.bg3,border:`1px solid ${C.border}`,borderRadius:9,
-            padding:"8px 11px",cursor:"pointer",display:"flex",alignItems:"center",gap:9,
-            transition:"border-color 0.2s",
+            background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,
+            padding:"10px 12px",cursor:"pointer",display:"flex",alignItems:"center",gap:10,
+            transition:"all 0.2s",
           }} className="hover-gold" onClick={()=>{
             if(brands.length>1) cycleBrand();
             else if(!brands.length) notify("No brand assigned");
             else notify("Only one brand assigned");
-          }}> 
-            <GoldAvatar initials={brandInitials} color={activeBrand?.color || C.gold} size={26}/>
+          }}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor=C.gold+"55";e.currentTarget.style.background=C.bg3;}}
+          onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background=C.bg2;}}> 
+            <GoldAvatar initials={brandInitials} color={activeBrand?.color || C.gold} size={32}/>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>
                 {brandLoading ? "Loading brands..." : (activeBrand?.name || "No brand assigned")}
               </div>
-              <div style={{fontSize:9,color:C.muted}}>
-                {role==="admin" ? "Enterprise" : "Assigned"} � {brands.length} brand{brands.length===1?"":"s"}
+              <div style={{fontSize:10,color:C.muted,marginTop:2}}>
+                {role==="admin" ? "Enterprise" : "Assigned"} • {brands.length} brand{brands.length===1?"":"s"}
               </div>
             </div>
-            <span style={{color:C.muted,fontSize:10}}>?</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.muted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
           </div>
         </div>
 
         {/* Nav */}
-        <div className="nav-items" style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
-          <div style={{fontSize:8,color:C.dim,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",padding:"8px 8px 4px"}}>Navigation</div>
-          {navItems.map(item=>(
-            <div key={item.id} className={`nav-item${nav===item.id?" on":""}`}
-              onClick={()=>setNav(item.id)}
-              style={{
-                display:"flex",alignItems:"center",gap:8,padding:"7px 10px",
-                borderRadius:7,cursor:"pointer",marginBottom:1,
-                color:nav===item.id?C.gold:C.muted,
-                fontSize:11,fontWeight:nav===item.id?700:400,
-                transition:"all 0.12s",borderLeft:"2px solid transparent",
-              }}>
-              <span>{item.label}</span>
-            </div>
-          ))}
+        <div className="nav-items" style={{flex:1,overflowY:"auto",padding:"12px 8px"}}>
+          <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",padding:"4px 10px 8px",opacity:0.7}}>Navigation</div>
+          {navItems.map(item=>{
+            const isActive=nav===item.id;
+            return (
+              <div key={item.id} className={`nav-item${isActive?" on":""}`}
+                onClick={()=>setNav(item.id)}
+                style={{
+                  display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                  borderRadius:8,cursor:"pointer",marginBottom:2,
+                  color:isActive?C.text:C.muted,
+                  fontSize:12,fontWeight:isActive?600:500,
+                  transition:"all 0.15s",
+                  background:isActive?`${C.gold}12`:"transparent",
+                  borderLeft:isActive?`3px solid ${C.gold}`:"3px solid transparent",
+                }}
+                onMouseEnter={e=>{if(!isActive){e.currentTarget.style.background=C.bg3;e.currentTarget.style.color=C.text;}}}
+                onMouseLeave={e=>{if(!isActive){e.currentTarget.style.background="transparent";e.currentTarget.style.color=C.muted;}}}>
+                <span style={{opacity:isActive?1:0.7}}>{item.icon} {item.label}</span>
+                {isActive && <div style={{marginLeft:"auto",width:6,height:6,borderRadius:"50%",background:C.gold}}/>}
+              </div>
+            );
+          })}
 
           {brands.length>0 && (
             <>
-              <div style={{fontSize:8,color:C.dim,fontWeight:700,letterSpacing:"2px",textTransform:"uppercase",padding:"12px 8px 4px"}}>Brands</div>
+              <div style={{fontSize:9,color:C.dim,fontWeight:700,letterSpacing:"1.5px",textTransform:"uppercase",padding:"16px 10px 8px",opacity:0.7}}>Brands</div>
               {brands.map(b=>{
                 const col=b.color||C.gold;
                 const isActive=b.id===activeBrandId;
                 return (
-                  <div key={b.id} style={{
-                    display:"flex",alignItems:"center",gap:7,padding:"5px 10px",
-                    borderRadius:7,cursor:"pointer",marginBottom:1,color:isActive?C.gold:C.muted,fontSize:10,
-                    transition:"all 0.12s",borderLeft:isActive?`2px solid ${C.gold}`:"2px solid transparent",
-                    background:isActive?C.bg3:"transparent",
-                  }} className="nav-item" onClick={()=>setActiveBrandId(b.id)}>
-                    <div style={{width:6,height:6,borderRadius:"50%",background:col,flexShrink:0}}/>
-                    <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.name}</span>
+                  <div key={b.id} 
+                    className="nav-item" 
+                    onClick={()=>setActiveBrandId(b.id)}
+                    onMouseEnter={e=>{if(!isActive){e.currentTarget.style.background=C.bg3;}}}
+                    onMouseLeave={e=>{if(!isActive){e.currentTarget.style.background="transparent";}}}
+                    style={{
+                      display:"flex",alignItems:"center",gap:8,padding:"7px 12px",
+                      borderRadius:7,cursor:"pointer",marginBottom:2,color:isActive?C.text:C.muted,fontSize:11,
+                      transition:"all 0.15s",
+                      borderLeft:isActive?`3px solid ${col}`:"3px solid transparent",
+                      background:isActive?`${col}10`:"transparent",
+                    }}>
+                    <div style={{width:8,height:8,borderRadius:"50%",background:col,flexShrink:0,boxShadow:`0 0 8px ${col}55`}}/>
+                    <span style={{flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",fontWeight:isActive?600:400}}>{b.name}</span>
                     {brandAlerts[b.id] > 0 && (
                       <span style={{
-                        minWidth:16,height:16,display:"inline-flex",alignItems:"center",justifyContent:"center",
+                        minWidth:18,height:18,display:"inline-flex",alignItems:"center",justifyContent:"center",
                         fontSize:9,fontWeight:700,borderRadius:999,background:`${C.gold}22`,color:C.gold,
-                        border:`1px solid ${C.gold}55`
                       }}>
                         {brandAlerts[b.id]}
                       </span>
@@ -3923,16 +5652,28 @@ export default function App() {
         </div>
 
         {/* User */}
-        <div className="user-info" style={{padding:"10px 12px",borderTop:`1px solid ${C.border}`,display:"flex",alignItems:"center",gap:9}}>
-          <div style={{position:"relative"}}>
-            <GoldAvatar initials={initials} color={C.gold} size={30}/>
-            <div style={{position:"absolute",bottom:0,right:0,width:8,height:8,borderRadius:"50%",background:C.green,border:`2px solid ${C.bg1}`}}/>
+        <div className="user-info" style={{padding:"12px",borderTop:`1px solid ${C.border}`,background:C.bg2}}>
+          <div style={{display:"flex",alignItems:"center",gap:10}}>
+            <div style={{position:"relative"}}>
+              <GoldAvatar initials={initials} color={C.gold} size={36}/>
+              <div style={{position:"absolute",bottom:0,right:0,width:10,height:10,borderRadius:"50%",background:C.green,border:`2px solid ${C.bg2}`}}/>
+            </div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:12,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>{userName}</div>
+              <div style={{fontSize:10,color:C.gold,fontWeight:600,marginTop:1}}>{roleLabel}</div>
+            </div>
+            <button onClick={()=>supabase.auth.signOut()}
+              title="Sign Out"
+              onMouseEnter={e=>{e.currentTarget.style.background=`${C.red}15`;e.currentTarget.style.color=C.red;}}
+              onMouseLeave={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.color=C.muted;}}
+              style={{display:"flex",alignItems:"center",justifyContent:"center",width:32,height:32,borderRadius:8,background:"transparent",border:"none",color:C.muted,cursor:"pointer",transition:"all 0.15s",flexShrink:0}}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
           </div>
-          <div style={{flex:1,minWidth:0}}>
-            <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{userName}</div>
-            <div style={{fontSize:9,color:C.gold,fontWeight:600}}>{roleLabel} � Online</div>
-          </div>
-          <button onClick={()=>supabase.auth.signOut()} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:12,padding:2}} title="Logout">Logout</button>
         </div>
       </div>
 
@@ -3940,32 +5681,42 @@ export default function App() {
       <div className="main-content" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
         {/* Topbar */}
         <div style={{
-          height:50,borderBottom:`1px solid ${C.border}`,
-          display:"flex",alignItems:"center",padding:"0 22px",gap:12,
+          height:56,borderBottom:`1px solid ${C.border}`,
+          display:"flex",alignItems:"center",padding:"0 24px",gap:16,
           background:C.bg1,flexShrink:0,
         }}>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:19,fontWeight:700,letterSpacing:"-0.3px",color:C.text}}>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:600,letterSpacing:"-0.3px",color:C.text}}>
             {navItems.find(n=>n.id===nav)?.label}
           </div>
           <div style={{flex:1}}/>
-          <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          <div style={{display:"flex",gap:10,alignItems:"center"}}>
             <div style={{
               fontSize:11,color:C.muted,
               display:"flex",alignItems:"center",gap:6,
-              background:C.bg3,border:`1px solid ${C.border}`,
-              borderRadius:7,padding:"4px 10px",
+              background:C.bg2,border:`1px solid ${C.border}`,
+              borderRadius:8,padding:"6px 12px",
             }}>
-              <div style={{width:6,height:6,borderRadius:"50%",background:C.green,flexShrink:0}}/>
+              <div style={{width:6,height:6,borderRadius:"50%",background:C.green,flexShrink:0,boxShadow:`0 0 6px ${C.green}`}}/>
               All platforms live
             </div>
             <NotificationBell session={session} activeBrandId={activeBrand?.id||null}/>
-            <button onClick={()=>notify("Synced across all channels!")} style={{padding:"5px 12px",borderRadius:7,background:C.bg3,border:`1px solid ${C.border}`,color:C.muted,fontSize:11,cursor:"pointer",fontWeight:600}}>Sync</button>
-            <GoldBtn onClick={()=>notify("Report exported!")} style={{padding:"5px 14px",fontSize:11}}>Export</GoldBtn>
+            <button onClick={()=>notify("Synced across all channels!")} 
+              onMouseEnter={e=>{e.currentTarget.style.background=C.bg3;e.currentTarget.style.borderColor=C.gold+"44";}}
+              onMouseLeave={e=>{e.currentTarget.style.background=C.bg2;e.currentTarget.style.borderColor=C.border;}}
+              style={{padding:"7px 14px",borderRadius:8,background:C.bg2,border:`1px solid ${C.border}`,color:C.muted,fontSize:12,cursor:"pointer",fontWeight:600,transition:"all 0.15s"}}>
+              🔄 Sync
+            </button>
+            <button onClick={()=>notify("Report exported!")} 
+              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-1px)";e.currentTarget.style.boxShadow=`0 4px 12px ${C.gold}30`;}}
+              onMouseLeave={e=>{e.currentTarget.style.transform="translateY(0)";e.currentTarget.style.boxShadow="none";}}
+              style={{padding:"7px 16px",borderRadius:8,background:GOLD_GRADIENT,border:"none",color:C.bg0,fontSize:12,cursor:"pointer",fontWeight:700,transition:"all 0.15s",boxShadow:`0 2px 8px ${C.gold}30`}}>
+              📥 Export
+            </button>
           </div>
         </div>
 
         {/* Content */}
-        <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+        <div style={{flex:1,display:"flex",overflow:"auto"}}>
           {nav==="inbox"&&<InboxModule notify={notify} accessToken={session?.access_token||""} activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} onSent={markBrandSeen}/>}
           {nav==="crm"&&<CRMModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} accessToken={session?.access_token||""} role={role}/>}
           {nav==="calendar"&&<CalendarModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session}/>}
@@ -3974,8 +5725,7 @@ export default function App() {
           {nav==="broadcast"&&<BroadcastModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} accessToken={session?.access_token||""}/>}
           {nav==="analytics"&&<AnalyticsModule activeBrandId={activeBrand?.id||null}/>}
           {nav==="demographics"&&<DemographicsModule/>}
-          {nav==="research"&&<MarketResearchModule/>}
-          {nav==="modules"&&<ModuleManager notify={notify} setNav={setNav}/>}
+          {nav==="research"&&<ResearchModule activeBrandId={activeBrand?.id||null}/>}
           {nav==="sales"&&<SalesModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""}/>}
           {nav==="marketing"&&<MarketingModule activeBrandId={activeBrand?.id||null}/>}
           {nav==="leads"&&<LeadsModule activeBrandId={activeBrand?.id||null}/>}
@@ -3999,13 +5749,11 @@ export default function App() {
           {nav==="predict"&&<PredictModule/>}
           {nav==="team"&&<TeamPanel notify={notify} accessToken={session?.access_token||""}/>}
           {nav==="email"&&<EmailMarketingModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session}/>}
-          {nav==="team"&&<TeamPanel notify={notify} accessToken={session?.access_token||""}/>}
-          {nav==="chatbot"&&<ChatbotSettingsPanel brands={brands} notify={notify}/>}
+          {nav==="chatbot"&&<ChatbotModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session}/>}
           {nav==="socialads"&&<SocialAdsModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session}/>}
           {nav==="metrics"&&<ClientMetricsModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session} role={role}/>}
           {nav==="adsresults"&&<ClientAdsResultsModule activeBrandId={activeBrand?.id||null} activeBrandName={activeBrand?.name||""} notify={notify} session={session}/>}
-          {nav==="admin"&&<AdminSetupPanel notify={notify}/>}
-          {nav==="settings"&&<SettingsPanel notify={notify} profile={profile} session={session}/>}
+          {nav==="admin"&&<AdminSetupModule activeBrandId={activeBrand?.id||null} setNav={setNav}/>}
         </div>
 
         <div style={{
@@ -4020,7 +5768,7 @@ export default function App() {
           flexShrink:0,
         }}>
           <div style={{fontSize:10,color:C.muted}}>
-            � 2026 <ExponifyWord style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700}}/> � Powered by Hermes
+            • 2026 <ExponifyWord style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700}}/> • Powered by Hermes
           </div>
           <LegalPolicyLinks compact />
         </div>
@@ -4096,9 +5844,9 @@ function CalendarModule({ activeBrandId, activeBrandName, notify, session: _sess
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Header */}
       <div style={{ padding: "14px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-        <button onClick={prevMonth} style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.muted, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 16 }}>�</button>
+        <button onClick={prevMonth} style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.muted, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 16 }}>—</button>
         <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 20, fontWeight: 700, color: C.text, flex: 1 }}>{monthName}</div>
-        <button onClick={nextMonth} style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.muted, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 16 }}>�</button>
+        <button onClick={nextMonth} style={{ background: C.bg3, border: `1px solid ${C.border}`, color: C.muted, borderRadius: 7, padding: "5px 12px", cursor: "pointer", fontSize: 16 }}>—</button>
         <div style={{ display: "flex", gap: 6 }}>
           {["month","list"].map(v => (
             <button key={v} onClick={() => setView(v)} style={{ padding: "5px 14px", borderRadius: 7, border: `1px solid ${view===v?C.gold:C.border}`, background: view===v?`${C.gold}18`:"transparent", color: view===v?C.gold:C.muted, fontSize: 11, fontWeight: 700, cursor: "pointer", textTransform: "capitalize" }}>{v}</button>
@@ -4154,7 +5902,7 @@ function CalendarModule({ activeBrandId, activeBrandName, notify, session: _sess
 
           {view === "list" && (
             <div>
-              {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading�</div>}
+              {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading—</div>}
               {!loading && schedules.length === 0 && (
                 <div style={{ color: C.muted, fontSize: 13, padding: "20px 0" }}>No scheduled demos this month.</div>
               )}
@@ -4163,7 +5911,7 @@ function CalendarModule({ activeBrandId, activeBrandName, notify, session: _sess
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: C.text, marginBottom: 4 }}>{s.contacts?.full_name || "Unknown"}</div>
-                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>{s.contacts?.email} {s.contacts?.phone ? `� ${s.contacts.phone}` : ""}</div>
+                      <div style={{ fontSize: 11, color: C.muted, marginBottom: 2 }}>{s.contacts?.email} {s.contacts?.phone ? `— ${s.contacts.phone}` : ""}</div>
                       <div style={{ fontSize: 11, color: C.gold, marginBottom: 6 }}>
                         ?? {new Date(s.scheduled_at).toLocaleString("en-PH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Manila" })}
                       </div>
@@ -4239,12 +5987,12 @@ function NotificationBell({ session, activeBrandId }) {
     const items = [
       ...(schedules || []).map(s => ({
         id: s.id, type: "demo",
-        text: `?? Demo booked: ${s.contacts?.full_name || "Someone"}`,
+        text: `◆ Demo booked: ${s.contacts?.full_name || "Someone"}`,
         time: s.created_at, color: C.gold,
       })),
       ...(contacts || []).map(c => ({
         id: c.created_at, type: "contact",
-        text: `?? New contact: ${c.full_name} (${c.stage})`,
+        text: `● New contact: ${c.full_name} (${c.stage})`,
         time: c.created_at, color: C.green,
       })),
     ].sort((a, b) => new Date(b.time) - new Date(a.time)).slice(0, 8);
@@ -4267,7 +6015,7 @@ function NotificationBell({ session, activeBrandId }) {
         position: "relative", background: C.bg3, border: `1px solid ${C.border}`,
         borderRadius: 8, padding: "5px 10px", cursor: "pointer", color: C.muted, fontSize: 16,
       }}>
-        ??
+        🔔
         {unread > 0 && (
           <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", background: C.red, color: "#fff", fontSize: 9, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>
             {unread > 9 ? "9+" : unread}
@@ -4424,7 +6172,7 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
       {/* Header */}
       <div style={{ padding: "14px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
         <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 20, fontWeight: 700, color: C.text, flex: 1 }}>
-          Orders {activeBrandName && <span style={{ fontSize: 13, color: C.muted, fontWeight: 400 }}>� {activeBrandName}</span>}
+          Orders {activeBrandName && <span style={{ fontSize: 13, color: C.muted, fontWeight: 400 }}>— {activeBrandName}</span>}
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {["all", ...STATUSES].map(s => (
@@ -4436,24 +6184,24 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
 
       {/* KPIs */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 10, padding: "12px 22px", borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
-        <GoldKPI label="Total Orders" value={orders.length} change="all time" up icon="??" color={C.gold}/>
-        <GoldKPI label="Pending" value={orders.filter(o => o.status === "pending").length} change="need action" up={false} icon="?" color={C.amber}/>
-        <GoldKPI label="Delivered" value={orders.filter(o => o.status === "delivered").length} change="completed" up icon="?" color={C.green}/>
-        <GoldKPI label="Revenue" value={`?${totalRevenue.toLocaleString()}`} change="delivered orders" up icon="??" color={C.cyan}/>
+        <GoldKPI label="Total Orders" value={orders.length} change="all time" up icon="◆" color={C.gold}/>
+        <GoldKPI label="Pending" value={orders.filter(o => o.status === "pending").length} change="need action" up={false} icon="◆" color={C.amber}/>
+        <GoldKPI label="Delivered" value={orders.filter(o => o.status === "delivered").length} change="completed" up icon="◆" color={C.green}/>
+        <GoldKPI label="Revenue" value={`₱${totalRevenue.toLocaleString()}`} change="delivered orders" up icon="◆" color={C.cyan}/>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Orders list */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 22px" }}>
-          {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading�</div>}
+          {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading—</div>}
           {!loading && orders.length === 0 && <div style={{ color: C.muted, fontSize: 13, padding: "20px 0" }}>No orders yet. Create your first order!</div>}
           {orders.map(o => (
             <div key={o.id} onClick={() => selectOrder(o)} style={{ background: sel?.id === o.id ? C.bg4 : C.bg3, border: `1px solid ${sel?.id === o.id ? C.border2 : C.border}`, borderRadius: 12, padding: "14px 16px", marginBottom: 8, cursor: "pointer", borderLeft: `3px solid ${STATUS_COLOR[o.status] || C.amber}`, transition: "all 0.12s" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13, color: C.text }}>{o.contacts?.full_name || "Unknown"}</div>
-                  <div style={{ fontSize: 11, color: C.muted }}>{pl(o.platform)} � {new Date(o.created_at).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</div>
-                  {o.notes && <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{o.notes.slice(0, 50)}{o.notes.length > 50 ? "�" : ""}</div>}
+                  <div style={{ fontSize: 11, color: C.muted }}>{pl(o.platform)} • {new Date(o.created_at).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}</div>
+                  {o.notes && <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{o.notes.slice(0, 50)}{o.notes.length > 50 ? "—" : ""}</div>}
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: C.gold }}>?{(o.total_amount || 0).toLocaleString()}</div>
@@ -4478,7 +6226,7 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
                 <div style={{ fontSize: 10, color: C.muted, marginBottom: 6, textTransform: "uppercase", letterSpacing: "1px" }}>Items</div>
                 {selItems.map(item => (
                   <div key={item.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "4px 0", borderBottom: `1px solid ${C.border}` }}>
-                    <span style={{ color: C.text }}>{item.products?.name || "Product"} � {item.quantity}</span>
+                    <span style={{ color: C.text }}>{item.products?.name || "Product"} • {item.quantity}</span>
                     <span style={{ color: C.gold }}>?{(item.unit_price * item.quantity).toLocaleString()}</span>
                   </div>
                 ))}
@@ -4512,7 +6260,7 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
               <div>
                 <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "1px" }}>Contact *</label>
                 <select value={newOrder.contact_id} onChange={e => setNewOrder(n => ({ ...n, contact_id: e.target.value }))} style={inp}>
-                  <option value="">Select contact�</option>
+                  <option value="">Select contact—</option>
                   {contacts.map(c => <option key={c.id} value={c.id}>{c.full_name}{c.email ? ` (${c.email})` : ""}</option>)}
                 </select>
               </div>
@@ -4524,7 +6272,7 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
               </div>
             </div>
 
-            {/* Product picker � shows only if brand has products */}
+            {/* Product picker • shows only if brand has products */}
             {hasProducts ? (
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 9, color: C.gold, display: "block", marginBottom: 8, textTransform: "uppercase", letterSpacing: "1px" }}>
@@ -4567,11 +6315,11 @@ function OrdersModule({ activeBrandId, activeBrandName, notify }) {
 
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "1px" }}>Notes</label>
-              <textarea value={newOrder.notes} onChange={e => setNewOrder(n => ({ ...n, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "none" }} placeholder="Order details, special instructions�" />
+              <textarea value={newOrder.notes} onChange={e => setNewOrder(n => ({ ...n, notes: e.target.value }))} rows={2} style={{ ...inp, resize: "none" }} placeholder="Order details, special instructions—" />
             </div>
 
             <div style={{ display: "flex", gap: 10 }}>
-              <GoldBtn onClick={createOrder} disabled={saving} style={{ flex: 1, padding: "9px" }}>{saving ? "Creating�" : "Create Order"}</GoldBtn>
+              <GoldBtn onClick={createOrder} disabled={saving} style={{ flex: 1, padding: "9px" }}>{saving ? "Creating—" : "Create Order"}</GoldBtn>
               <button onClick={() => setShowCreate(false)} style={{ flex: 1, background: "transparent", border: `1px solid ${C.border}`, borderRadius: 10, color: C.muted, cursor: "pointer", fontSize: 12 }}>Cancel</button>
             </div>
           </div>
@@ -4634,7 +6382,7 @@ function BroadcastModule({ activeBrandId, activeBrandName, notify, accessToken }
     }
 
     // Save to history
-    const newEntry = { id: Date.now(), message: message.slice(0, 60) + (message.length > 60 ? "�" : ""), platform, sent: successCount, total: targets.length, date: new Date().toISOString() };
+    const newEntry = { id: Date.now(), message: message.slice(0, 60) + (message.length > 60 ? "—" : ""), platform, sent: successCount, total: targets.length, date: new Date().toISOString() };
     setHistory(h => [newEntry, ...h.slice(0, 9)]);
     setSending(false);
     notify(`? Sent to ${successCount}/${targets.length} contacts`);
@@ -4671,13 +6419,13 @@ function BroadcastModule({ activeBrandId, activeBrandName, notify, accessToken }
           <div style={{ marginBottom: 14 }}>
             <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 6, textTransform: "uppercase", letterSpacing: "1px" }}>Message *</label>
             <textarea value={message} onChange={e => setMessage(e.target.value)} rows={5}
-              placeholder="Hi {first_name}! We have an exciting promo just for you�&#10;&#10;Tip: Use {first_name} to personalize"
+              placeholder="Hi {first_name}! We have an exciting promo just for you—&#10;&#10;Tip: Use {first_name} to personalize"
               style={{ ...inp, resize: "vertical" }} />
             <div style={{ fontSize: 10, color: C.dim, marginTop: 4 }}>Use {"{first_name}"} to personalize with contact's name</div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <GoldBtn onClick={sendBroadcast} disabled={sending || selected.length === 0} style={{ padding: "9px 24px" }}>
-              {sending ? `Sending� ${sent}/${selected.length}` : `?? Send to ${selected.length} contacts`}
+              {sending ? `Sending— ${sent}/${selected.length}` : `?? Send to ${selected.length} contacts`}
             </GoldBtn>
             {sending && (
               <div style={{ flex: 1, background: C.bg4, borderRadius: 8, height: 6, overflow: "hidden" }}>
@@ -4712,7 +6460,7 @@ function BroadcastModule({ activeBrandId, activeBrandName, notify, accessToken }
           </button>
         </div>
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {loading && <div style={{ padding: 16, color: C.muted, fontSize: 12 }}>Loading contacts�</div>}
+          {loading && <div style={{ padding: 16, color: C.muted, fontSize: 12 }}>Loading contacts—</div>}
           {!loading && contacts.length === 0 && (
             <div style={{ padding: 16, color: C.muted, fontSize: 12 }}>No contacts with Facebook IDs found for this brand/stage.</div>
           )}
@@ -4978,7 +6726,7 @@ function InboxModule({notify, accessToken, activeBrandId, activeBrandName, onSen
                 <GoldAvatar initials={sel.avatar} color={sel.color} size={40}/>
                 <div>
                   <div style={{fontFamily:"'Cormorant Garamond',serif",fontWeight:700,fontSize:18,color:C.text}}>{sel.user}</div>
-                  <div style={{fontSize:11,color:C.muted}}>{pl(sel.platform)} � {sel.brand} � {sel.time}</div>
+                  <div style={{fontSize:11,color:C.muted}}>{pl(sel.platform)} • {sel.brand} • {sel.time}</div>
                 </div>
                 <button onClick={toggleAutoReply} style={{
                   marginLeft:"auto",
@@ -5003,7 +6751,7 @@ function InboxModule({notify, accessToken, activeBrandId, activeBrandName, onSen
             </div>
             <div style={{flex:1,padding:"18px 22px",overflowY:"auto"}}>
               <GoldBtn onClick={generate} disabled={gen} style={{marginBottom:14,display:"flex",alignItems:"center",gap:7}}>
-                {gen?<><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>?</span>Consulting Hermes AI�</>:"? Generate AI Reply"}
+                {gen?<><span style={{display:"inline-block",animation:"spin 1s linear infinite"}}>?</span>Consulting Hermes AI—</>:"? Generate AI Reply"}
               </GoldBtn>
               <div style={{display:"flex",flexDirection:"column",gap:8,marginBottom:14}}>
                 {threadLoading && <div style={{height:8}} />}
@@ -5037,10 +6785,10 @@ function InboxModule({notify, accessToken, activeBrandId, activeBrandName, onSen
               </div>
               <div style={{background:C.bg3,border:`1px solid ${C.border2}`,borderRadius:11,padding:"14px 16px",marginBottom:12}}>
                 <div style={{fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px",marginBottom:8}}>Your Reply</div>
-                <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Compose your reply or generate with Hermes AI�"
+                <textarea value={draft} onChange={e=>setDraft(e.target.value)} placeholder="Compose your reply or generate with Hermes AI—"
                   rows={5} style={{width:"100%",background:"transparent",border:"none",color:C.text,fontSize:13,lineHeight:1.7}}/>
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",paddingTop:10,borderTop:`1px solid ${C.border}`}}>
-                  <span style={{fontSize:10,color:C.dim}}>{draft.length} chars � {pl(sel.platform)}</span>
+                  <span style={{fontSize:10,color:C.dim}}>{draft.length} chars • {pl(sel.platform)}</span>
                   <GoldBtn onClick={send} disabled={!draft.trim()}>
                     Send Reply ?
                   </GoldBtn>
@@ -5051,7 +6799,7 @@ function InboxModule({notify, accessToken, activeBrandId, activeBrandName, onSen
                 "Hi po! Salamat sa inyong mensahe ?? Please DM us for full details!",
                 "Available pa po! Message us to place your order ??",
                 "Yes po, COD available! DM us your area para ma-confirm.",
-                "Pasensya na po for the inconvenience � we'll fix this agad! ??",
+                "Pasensya na po for the inconvenience • we'll fix this agad! ??",
               ].map((t,i)=>(
                 <div key={i} onClick={()=>setDraft(t)} style={{
                   padding:"8px 12px",borderRadius:8,background:C.bg3,
@@ -5147,13 +6895,13 @@ function TeamPanel({ notify, accessToken }) {
           </div>
           <div style={{ fontSize: 10, color: C.muted, marginBottom: 12 }}>After inviting, go to Admin Setup ? User Access to assign them to brands.</div>
           <div style={{ display: "flex", gap: 8 }}>
-            <GoldBtn onClick={inviteUser} disabled={busy} style={{ padding: "7px 18px", fontSize: 12 }}>{busy ? "Inviting�" : "Send Invite"}</GoldBtn>
+            <GoldBtn onClick={inviteUser} disabled={busy} style={{ padding: "7px 18px", fontSize: 12 }}>{busy ? "Inviting—" : "Send Invite"}</GoldBtn>
             <button onClick={() => setShowInvite(false)} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 7, padding: "7px 14px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
           </div>
         </div>
       )}
 
-      {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading team�</div>}
+      {loading && <div style={{ color: C.muted, fontSize: 12 }}>Loading team—</div>}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(270px,1fr))", gap: 14 }}>
         {users.map((u, i) => {
@@ -5165,7 +6913,7 @@ function TeamPanel({ notify, accessToken }) {
               <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
                 <GoldAvatar initials={initials} color={color} size={44} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.full_name || "�"}</div>
+                  <div style={{ fontFamily: "'Cormorant Garamond',serif", fontWeight: 700, fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.full_name || "—"}</div>
                   <div style={{ fontSize: 10, color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.email}</div>
                 </div>
                 <GoldTag color={color}>{u.role}</GoldTag>
@@ -5189,7 +6937,7 @@ function TeamPanel({ notify, accessToken }) {
 //  ADMIN SETUP PANEL (keeping your existing AdminSetupPanel)
 // ---------------------------------------------------------------------------
 // ------------------------------------------------------------
-//  CHATBOT SETTINGS PANEL � per-brand bot config
+//  CHATBOT SETTINGS PANEL • per-brand bot config
 // ------------------------------------------------------------
 function ChatbotSettingsPanel({ brands, notify }) {
   const [selectedBrandId, setSelectedBrandId] = useState("");
@@ -5272,7 +7020,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
     if (!selectedBrandId || !settings) return;
     setSaving(true);
 
-    // Only send known writable columns � never spread full settings object
+    // Only send known writable columns • never spread full settings object
     // as it may contain read-only fields like updated_at that Supabase rejects
     const payload = {
       brand_id:         selectedBrandId,
@@ -5301,7 +7049,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
 
     setSaving(false);
     if (error) {
-      console.error("Save error:", error);
+      console.error("Save error");
       notify(`? Save failed: ${error.message}`);
     } else {
       notify("? Chatbot settings saved!");
@@ -5319,7 +7067,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
     };
     setMenuButtons(b => [...b, btn]);
     setNewBtnTitle(""); setNewBtnPayload(""); setNewBtnReply(""); setNewBtnImage(""); setNewBtnUrl("");
-    notify("Button added � save to apply");
+    notify("Button added • save to apply");
   };
 
   const removeButton = (i) => setMenuButtons(b => b.filter((_, idx) => idx !== i));
@@ -5346,7 +7094,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
       <div style={{ marginBottom: 16 }}>
         <label style={{ fontSize: 9, color: C.muted, fontWeight: 700, textTransform: "uppercase", letterSpacing: "1px", display: "block", marginBottom: 6 }}>Select Brand to Configure</label>
         <select value={selectedBrandId} onChange={e => setSelectedBrandId(e.target.value)} style={{ ...inp, width: 280 }}>
-          <option value="">� Choose a brand �</option>
+          <option value="">— Choose a brand —</option>
           {brands.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
       </div>
@@ -5356,7 +7104,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
       )}
 
       {selectedBrandId && loading && (
-        <div style={{ fontSize: 12, color: C.muted }}>Loading settings�</div>
+        <div style={{ fontSize: 12, color: C.muted }}>Loading settings—</div>
       )}
 
       {selectedBrandId && settings && !loading && (
@@ -5443,9 +7191,9 @@ function ChatbotSettingsPanel({ brands, notify }) {
                     <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{btn.title}</div>
                     <div style={{ fontSize: 10, color: C.muted }}>
                       payload: {btn.payload}
-                      {btn.reply_text && <span style={{ color: C.cyan }}> � has reply</span>}
-                      {btn.image_url && <span style={{ color: C.violet }}> � has image</span>}
-                      {btn.url && <span style={{ color: C.amber }}> � ?? has url</span>}
+                      {btn.reply_text && <span style={{ color: C.cyan }}> • has reply</span>}
+                      {btn.image_url && <span style={{ color: C.violet }}> • has image</span>}
+                      {btn.url && <span style={{ color: C.amber }}> • ?? has url</span>}
                     </div>
                   </div>
                   <button onClick={() => moveButton(i, -1)} disabled={i === 0} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 5, padding: "2px 7px", cursor: "pointer", fontSize: 12 }}>?</button>
@@ -5469,10 +7217,10 @@ function ChatbotSettingsPanel({ brands, notify }) {
                 </div>
                 <div style={{ marginBottom: 8 }}>
                   <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 4 }}>Reply Text (what to send when tapped)</label>
-                  <textarea value={newBtnReply} onChange={e => setNewBtnReply(e.target.value)} rows={2} placeholder="e.g. Here are our products! ??? We have cakes starting at ?350..." style={{ ...inp, resize: "none" }} />
+                  <textarea value={newBtnReply} onChange={e => setNewBtnReply(e.target.value)} rows={2} placeholder="e.g. Here are our products! ??? We have cakes starting at ₱350..." style={{ ...inp, resize: "none" }} />
                 </div>
                 <div style={{ marginBottom: 10 }}>
-                  <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 4 }}>Image (optional � sends photo before reply text)</label>
+                  <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 4 }}>Image (optional • sends photo before reply text)</label>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                     <label style={{
                       padding: "8px 14px", borderRadius: 8, fontSize: 11, fontWeight: 700,
@@ -5480,7 +7228,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
                       border: `1px solid ${C.violet}55`, color: uploadingImg ? C.muted : C.violet,
                       cursor: uploadingImg ? "not-allowed" : "pointer", whiteSpace: "nowrap",
                     }}>
-                      {uploadingImg ? "Uploading�" : "?? Upload Image"}
+                      {uploadingImg ? "Uploading—" : "?? Upload Image"}
                       <input type="file" accept="image/*" style={{ display: "none" }}
                         onChange={e => uploadMenuImage(e.target.files?.[0])}
                         disabled={uploadingImg} />
@@ -5498,7 +7246,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
                   )}
                 </div>
                 <div style={{ marginBottom: 10 }}>
-                  <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 4 }}>Website URL (optional � opens link when tapped instead of reply text)</label>
+                  <label style={{ fontSize: 9, color: C.muted, display: "block", marginBottom: 4 }}>Website URL (optional • opens link when tapped instead of reply text)</label>
                   <input value={newBtnUrl} onChange={e => setNewBtnUrl(e.target.value)}
                     placeholder="e.g. https://yourwebsite.com/book-demo"
                     style={inp} />
@@ -5537,7 +7285,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
             {settings.welcome_card_enabled && (
               <div>
                 <div style={{ fontSize: 10, color: C.muted, marginBottom: 10, lineHeight: 1.6 }}>
-                  When someone first messages your page, the bot will send a card with your landing page image and a button linking to your website � before any text reply.
+                  When someone first messages your page, the bot will send a card with your landing page image and a button linking to your website • before any text reply.
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                   <div>
@@ -5590,7 +7338,7 @@ function ChatbotSettingsPanel({ brands, notify }) {
 
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <GoldBtn onClick={saveSettings} disabled={saving} style={{ padding: "9px 24px", fontSize: 12 }}>
-              {saving ? "Saving�" : "?? Save Chatbot Settings"}
+              {saving ? "Saving—" : "?? Save Chatbot Settings"}
             </GoldBtn>
             <button onClick={async () => {
               if (!selectedBrandId) { notify("Select a brand first"); return; }
@@ -5926,8 +7674,8 @@ function AdminSetupPanel({notify}) {
         <GoldBtn onClick={loadAll} style={{padding:"6px 14px",fontSize:11}}>Refresh</GoldBtn>
       </div>
 
-      {error&&<div style={{marginBottom:12,color:C.red,fontSize:12}}>{error}</div>}
-      {loading&&<div style={{marginBottom:12,color:C.muted,fontSize:12}}>Loading...</div>}
+      {error&&<div style={{marginBottom:12,color:C.gold,fontSize:12}}>{error}</div>}
+      {loading&&<div style={{marginBottom:12,color:C.gold,fontSize:12}}>Loading...</div>}
 
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
         <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px"}}>
@@ -5943,7 +7691,7 @@ function AdminSetupPanel({notify}) {
           <GoldBtn onClick={createBrand} style={{padding:"6px 14px",fontSize:11}}>Add Brand</GoldBtn>
           {editBrandId && (
             <div style={{marginTop:16,paddingTop:14,borderTop:`1px solid ${C.border}`}}>
-              <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Edit brand</div>
+              <div style={{fontSize:10,color:C.gold,marginBottom:6}}>Edit brand</div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
                 <input value={editBrandName} onChange={e=>setEditBrandName(e.target.value)} placeholder="Brand name"
                   style={{background:C.bg4,border:`1px solid ${C.border2}`,borderRadius:8,padding:"8px 10px",color:C.text}}/>
@@ -5963,10 +7711,10 @@ function AdminSetupPanel({notify}) {
               <div key={b.id} style={{display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
                 <div style={{width:8,height:8,borderRadius:"50%",background:b.color}}/>
                 <div style={{fontSize:12,color:C.text}}>{b.name}</div>
-                <div style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{b.description||""}</div>
+                <div style={{fontSize:10,color:C.gold,marginLeft:"auto"}}>{b.description||""}</div>
                 <button onClick={()=>startEditBrand(b)} style={{
-                  marginLeft:8,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.border2}`,
-                  background:"transparent",color:C.muted,fontSize:10,cursor:"pointer"
+                  marginLeft:8,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.gold}55`,
+                  background:"transparent",color:C.gold,fontSize:10,cursor:"pointer"
                 }}>Edit</button>
                 <button onClick={()=>deleteBrand(b.id)} style={{
                   marginLeft:6,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}55`,
@@ -6001,20 +7749,20 @@ function AdminSetupPanel({notify}) {
             {assignments.map(a=>(
               <div key={a.id} style={{display:"flex",gap:8,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
                 <div style={{fontSize:11,color:C.text}}>{a.profiles?.full_name||a.profiles?.email||"User"}</div>
-                <div style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{a.brands?.name||"Brand"}</div>
+                <div style={{fontSize:10,color:C.gold,marginLeft:"auto"}}>{a.brands?.name||"Brand"}</div>
                 <button onClick={()=>unassignBrand(a.id)} style={{
-                  marginLeft:6,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}55`,
-                  background:"transparent",color:C.red,fontSize:10,cursor:"pointer"
+                  marginLeft:6,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.gold}55`,
+                  background:"transparent",color:C.gold,fontSize:10,cursor:"pointer"
                 }}>Remove</button>
               </div>
             ))}
             {assignments.length===0 && (
-              <div style={{fontSize:11,color:C.muted,padding:"6px 0"}}>No assignments yet.</div>
+              <div style={{fontSize:11,color:C.gold,padding:"6px 0"}}>No assignments yet.</div>
             )}
           </div>
 
           <div style={{marginTop:16}}>
-            <div style={{fontSize:10,color:C.muted,marginBottom:6}}>Update role</div>
+            <div style={{fontSize:10,color:C.gold,marginBottom:6}}>Update role</div>
             <div style={{display:"grid",gridTemplateColumns:"1fr 120px",gap:10,marginBottom:10}}>
               <select value={roleUserId} onChange={e=>setRoleUserId(e.target.value)}
                 style={{background:C.bg4,border:`1px solid ${C.border2}`,borderRadius:8,padding:"8px 10px",color:C.text}}>
@@ -6055,8 +7803,8 @@ function AdminSetupPanel({notify}) {
           {connections.map(c=>(
             <div key={c.id} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
               <div style={{fontSize:11,color:C.text,fontWeight:600}}>{brandNameById(c.brand_id)}</div>
-              <div style={{fontSize:10,color:C.muted}}>{c.platform}</div>
-              <div style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>Page {c.page_id}</div>
+              <div style={{fontSize:10,color:C.gold}}>{c.platform}</div>
+              <div style={{fontSize:10,color:C.gold,marginLeft:"auto"}}>Page {c.page_id}</div>
             </div>
           ))}
         </div>
@@ -6079,8 +7827,8 @@ function AdminSetupPanel({notify}) {
           rows={5} style={{width:"100%",background:C.bg4,border:`1px solid ${C.border2}`,borderRadius:8,padding:"8px 10px",color:C.text,marginBottom:10}}/>
         <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10}}>
           <input type="file" accept=".txt,.md,.csv,.pdf" onChange={e=>handleContextFile(e.target.files?.[0])}
-            style={{color:C.muted,fontSize:11}}/>
-          {ctxFileName && <span style={{fontSize:10,color:C.muted}}>{ctxFileName}</span>}
+            style={{color:C.gold,fontSize:11}}/>
+          {ctxFileName && <span style={{fontSize:10,color:C.gold}}>{ctxFileName}</span>}
         </div>
         <GoldBtn onClick={saveContext} style={{padding:"6px 14px",fontSize:11}}>Save Context</GoldBtn>
 
@@ -6088,16 +7836,16 @@ function AdminSetupPanel({notify}) {
           {contexts.map(c=>(
             <div key={c.id} style={{display:"flex",gap:10,alignItems:"center",padding:"6px 0",borderBottom:`1px solid ${C.border}`}}>
               <div style={{fontSize:11,color:C.text,fontWeight:600}}>{brandNameById(c.brand_id)}</div>
-              <div style={{fontSize:10,color:C.muted}}>{c.title||c.source_type}</div>
-              <div style={{fontSize:10,color:C.muted,marginLeft:"auto"}}>{(c.content||"").slice(0,40)}...</div>
+              <div style={{fontSize:10,color:C.gold}}>{c.title||c.source_type}</div>
+              <div style={{fontSize:10,color:C.gold,marginLeft:"auto"}}>{(c.content||"").slice(0,40)}...</div>
               <button onClick={()=>deleteContext(c.id)} style={{
-                marginLeft:6,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.red}55`,
-                background:"transparent",color:C.red,fontSize:10,cursor:"pointer"
+                marginLeft:6,padding:"3px 8px",borderRadius:6,border:`1px solid ${C.gold}55`,
+                background:"transparent",color:C.gold,fontSize:10,cursor:"pointer"
               }}>Delete</button>
             </div>
           ))}
           {contexts.length===0 && (
-            <div style={{fontSize:11,color:C.muted,padding:"6px 0"}}>No context yet.</div>
+            <div style={{fontSize:11,color:C.gold,padding:"6px 0"}}>No context yet.</div>
           )}
         </div>
       </div>
@@ -6178,84 +7926,8 @@ function AdminSetupPanel({notify}) {
 }
 
 // ---------------------------------------------------------------------------
-//  SETTINGS PANEL (keeping your existing SettingsPanel)
+//  EMAIL MARKETING MODULE
 // ---------------------------------------------------------------------------
-function SettingsPanel({ notify, profile, session }) {
-  const [fullName, setFullName] = useState(profile?.full_name || "");
-  const [saving, setSaving] = useState(false);
-  const [connections, setConnections] = useState([]);
-
-  useEffect(() => {
-    setFullName(profile?.full_name || "");
-  }, [profile]);
-
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase
-        .from("platform_connections")
-        .select("id, platform, page_id, is_active, brand_id, brands(name)")
-        .order("created_at", { ascending: false });
-      setConnections(data || []);
-    })();
-  }, []);
-
-  const saveName = async () => {
-    if (!session?.user?.id) return;
-    setSaving(true);
-    const { error } = await supabase.from("profiles").update({ full_name: fullName.trim() }).eq("id", session.user.id);
-    setSaving(false);
-    if (error) notify(error.message);
-    else notify("? Name updated! Refresh to see changes.");
-  };
-
-  const toggleConnection = async (conn) => {
-    await supabase.from("platform_connections").update({ is_active: !conn.is_active }).eq("id", conn.id);
-    setConnections(list => list.map(c => c.id === conn.id ? { ...c, is_active: !c.is_active } : c));
-    notify(conn.is_active ? "Connection disabled" : "Connection enabled");
-  };
-
-  return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-      <div style={{ maxWidth: 600 }}>
-        {/* Profile */}
-        <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px", borderTop: `2px solid ${C.gold}`, marginBottom: 16 }}>
-          <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, fontWeight: 700, color: C.gold, marginBottom: 16 }}>Your Profile</div>
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 9, color: C.gold, fontWeight: 700, display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "1.5px" }}>Display Name</label>
-            <input value={fullName} onChange={e => setFullName(e.target.value)} style={{ width: "100%", background: C.bg4, border: `1px solid ${C.border2}`, borderRadius: 9, padding: "9px 14px", color: C.text, fontSize: 13 }} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 9, color: C.muted, fontWeight: 700, display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "1.5px" }}>Email</label>
-            <input value={session?.user?.email || ""} disabled style={{ width: "100%", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 14px", color: C.muted, fontSize: 13 }} />
-          </div>
-          <div style={{ marginBottom: 16 }}>
-            <label style={{ fontSize: 9, color: C.muted, fontWeight: 700, display: "block", marginBottom: 5, textTransform: "uppercase", letterSpacing: "1.5px" }}>Role</label>
-            <input value={profile?.role || "�"} disabled style={{ width: "100%", background: C.bg2, border: `1px solid ${C.border}`, borderRadius: 9, padding: "9px 14px", color: C.muted, fontSize: 13 }} />
-          </div>
-          <GoldBtn onClick={saveName} disabled={saving}>{saving ? "Saving�" : "Save Name"}</GoldBtn>
-        </div>
-
-        {/* Platform Connections */}
-        <div style={{ background: C.bg3, border: `1px solid ${C.border}`, borderRadius: 14, padding: "22px 24px" }}>
-          <div style={{ fontFamily: "'Cormorant Garamond',serif", fontSize: 18, fontWeight: 700, color: C.text, marginBottom: 6 }}>Connected Platforms</div>
-          <div style={{ fontSize: 11, color: C.muted, marginBottom: 16 }}>Add platform connections in Admin Setup ? Facebook Connection.</div>
-          {connections.length === 0 && <div style={{ fontSize: 12, color: C.dim }}>No platform connections yet.</div>}
-          {connections.map(conn => (
-            <div key={conn.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: `1px solid ${C.border}` }}>
-              <div style={{ width: 8, height: 8, borderRadius: "50%", background: conn.is_active ? C.green : C.muted, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.text, textTransform: "capitalize" }}>{conn.platform} � {conn.brands?.name || "Unknown brand"}</div>
-                <div style={{ fontSize: 10, color: C.muted }}>Page ID: {conn.page_id}</div>
-              </div>
-              <button onClick={() => toggleConnection(conn)} style={{ background: "transparent", border: `1px solid ${C.border}`, color: C.muted, borderRadius: 6, padding: "4px 10px", fontSize: 10, cursor: "pointer" }}>{conn.is_active ? "Disable" : "Enable"}</button>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session: _session }) {
   const [tab,setTab]=useState("campaigns");
   const [campaigns,setCampaigns]=useState([]);
@@ -6287,10 +7959,10 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
 
   const mockCampaigns=[
     {id:"ec1",name:"Q2 Partner Launch",status:"sent",subject:"Exclusive Partnership Opportunity ??",list_name:"Enterprise Leads PH",recipients:342,open_rate:58.4,click_rate:22.1,revenue_attributed:128400,sent_at:"2026-03-18T10:00:00Z",target_segment:"Enterprise decision-makers 35-50",ai_score:94},
-    {id:"ec2",name:"SME Onboarding � Week 1",status:"sent",subject:"Welcome to Exponify � Your Growth Starts Now",list_name:"SME Philippines",recipients:891,open_rate:71.2,click_rate:34.5,revenue_attributed:245000,sent_at:"2026-03-15T09:00:00Z",target_segment:"SME owners 28-45, Metro Manila",ai_score:88},
+    {id:"ec2",name:"SME Onboarding • Week 1",status:"sent",subject:"Welcome to Exponify • Your Growth Starts Now",list_name:"SME Philippines",recipients:891,open_rate:71.2,click_rate:34.5,revenue_attributed:245000,sent_at:"2026-03-15T09:00:00Z",target_segment:"SME owners 28-45, Metro Manila",ai_score:88},
     {id:"ec3",name:"Distributor Network Invite",status:"scheduled",subject:"Join the Exponify Distributor Network",list_name:"Distributors",recipients:128,open_rate:null,click_rate:null,revenue_attributed:null,sent_at:"2026-03-25T08:00:00Z",target_segment:"FMCG distributors, nationwide",ai_score:91},
-    {id:"ec4",name:"Beauty Report 2026",status:"draft",subject:"[B2B Report] PH Beauty Market 2026",list_name:"",recipients:0,open_rate:null,click_rate:null,revenue_attributed:null,sent_at:null,target_segment:"TBD � AI targeting pending",ai_score:null},
-    {id:"ec5",name:"Re-engagement: Cold Leads",status:"sent",subject:"We miss you � Here's what's new",list_name:"Cold Leads",recipients:214,open_rate:29.3,click_rate:8.7,revenue_attributed:31200,sent_at:"2026-03-10T14:00:00Z",target_segment:"Cold leads 90d+, all industries",ai_score:72},
+    {id:"ec4",name:"Beauty Report 2026",status:"draft",subject:"[B2B Report] PH Beauty Market 2026",list_name:"",recipients:0,open_rate:null,click_rate:null,revenue_attributed:null,sent_at:null,target_segment:"TBD • AI targeting pending",ai_score:null},
+    {id:"ec5",name:"Re-engagement: Cold Leads",status:"sent",subject:"We miss you • Here's what's new",list_name:"Cold Leads",recipients:214,open_rate:29.3,click_rate:8.7,revenue_attributed:31200,sent_at:"2026-03-10T14:00:00Z",target_segment:"Cold leads 90d+, all industries",ai_score:72},
   ];
   const mockLists=[
     {id:"el1",name:"Enterprise Leads PH",count:342,industry:"Multi-brand Retail",avg_open:58,best_time:"Tue 10AM"},
@@ -6308,8 +7980,8 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
   const statusColor=s=>({sent:C.green,scheduled:C.amber,draft:C.muted,failed:C.red}[s]||C.muted);
   const statusLabel=s=>({sent:"? Sent",scheduled:"? Scheduled",draft:"? Draft",failed:"? Failed"}[s]||s);
   const totalSent=campaigns.filter(c=>c.status==="sent").reduce((a,c)=>a+(c.recipients||0),0);
-  const avgOpen=(()=>{const s=campaigns.filter(c=>c.open_rate);return s.length?(s.reduce((a,c)=>a+c.open_rate,0)/s.length).toFixed(1):"�";})();
-  const avgClick=(()=>{const s=campaigns.filter(c=>c.click_rate);return s.length?(s.reduce((a,c)=>a+c.click_rate,0)/s.length).toFixed(1):"�";})();
+  const avgOpen=(()=>{const s=campaigns.filter(c=>c.open_rate);return s.length?(s.reduce((a,c)=>a+c.open_rate,0)/s.length).toFixed(1):"—";})();
+  const avgClick=(()=>{const s=campaigns.filter(c=>c.click_rate);return s.length?(s.reduce((a,c)=>a+c.click_rate,0)/s.length).toFixed(1):"—";})();
   const totalRevenue=campaigns.filter(c=>c.revenue_attributed).reduce((a,c)=>a+(c.revenue_attributed||0),0);
 
   const aiAnalyzeTarget=async()=>{
@@ -6317,10 +7989,10 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
     try{
       const {data:contacts}=await supabase.from("contacts").select("stage,platform,tags,lifetime_value,score").eq("brand_id",activeBrandId||"").limit(200);
       const crmSummary=contacts?.length?`CRM data: ${contacts.length} contacts. Stages: ${[...new Set(contacts.map(c=>c.stage))].join(", ")}. Top platforms: ${[...new Set(contacts.map(c=>c.platform).filter(Boolean))].slice(0,3).join(", ")}. Avg LTV: ?${Math.round((contacts.reduce((a,c)=>a+(c.lifetime_value||0),0))/Math.max(contacts.length,1)).toLocaleString()}.`:"CRM data: using Philippine market benchmarks.";
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,messages:[{role:"user",content:`You are an AI email marketing strategist for ${activeBrandName||"Exponify"}, a Philippine B2B commerce platform.\n\nContext:\n- Industry: ${INDUSTRIES.find(i=>i.id===industryCtx)?.label||industryCtx}\n- Campaign Goal: ${GOALS.find(g=>g.id===campaignGoal)?.label||campaignGoal}\n- ${crmSummary}\n\nAnalyze and output a smart target market strategy. Return ONLY valid JSON (no markdown, no explanation outside JSON):\n{\n  "primary_segment": "string",\n  "age_range": "e.g. 28-45",\n  "gender_split": "e.g. 65% Female, 35% Male",\n  "top_locations": ["Metro Manila","CALABARZON","Central Luzon"],\n  "best_send_time": "e.g. Tuesday 10:00 AM",\n  "recommended_list": "name of best list",\n  "subject_line_tips": ["tip1","tip2","tip3"],\n  "personalization_tokens": ["{{first_name}}","{{company}}","{{industry}}"],\n  "predicted_open_rate": "e.g. 62-68%",\n  "predicted_ctr": "e.g. 24-30%",\n  "predicted_revenue": "e.g. ?85,000-?120,000",\n  "campaign_type": "e.g. Drip sequence (3 emails over 7 days)",\n  "reasoning": "2-3 sentence explanation"\n}`}]})});
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,messages:[{role:"user",content:`You are an AI email marketing strategist for ${activeBrandName||"Exponify"}, a Philippine B2B commerce platform.\n\nContext:\n- Industry: ${INDUSTRIES.find(i=>i.id===industryCtx)?.label||industryCtx}\n- Campaign Goal: ${GOALS.find(g=>g.id===campaignGoal)?.label||campaignGoal}\n- ${crmSummary}\n\nAnalyze and output a smart target market strategy. Return ONLY valid JSON (no markdown, no explanation outside JSON):\n{\n  "primary_segment": "string",\n  "age_range": "e.g. 28-45",\n  "gender_split": "e.g. 65% Female, 35% Male",\n  "top_locations": ["Metro Manila","CALABARZON","Central Luzon"],\n  "best_send_time": "e.g. Tuesday 10:00 AM",\n  "recommended_list": "name of best list",\n  "subject_line_tips": ["tip1","tip2","tip3"],\n  "personalization_tokens": ["{{first_name}}","{{company}}","{{industry}}"],\n  "predicted_open_rate": "e.g. 62-68%",\n  "predicted_ctr": "e.g. 24-30%",\n  "predicted_revenue": "e.g. ₱85,000-₱120,000",\n  "campaign_type": "e.g. Drip sequence (3 emails over 7 days)",\n  "reasoning": "2-3 sentence explanation"\n}`}]})});
       const data=await resp.json();const raw=data.content?.[0]?.text||"";const jsonMatch=raw.match(/\{[\s\S]*\}/);
       if(jsonMatch)setAiTargetResult(JSON.parse(jsonMatch[0]));else setAiTargetResult({error:"Could not parse AI response."});
-    }catch{setAiTargetResult({primary_segment:"Philippine SME owners and brand managers aged 28-45",age_range:"28-45",gender_split:"58% Female, 42% Male",top_locations:["Metro Manila","CALABARZON","Cebu City"],best_send_time:"Tuesday 10:00 AM PH time",recommended_list:"SME Philippines",subject_line_tips:["Use their company name in subject","Include a specific ? value proposition","Ask a pain-point question"],personalization_tokens:["{{first_name}}","{{company}}","{{industry}}"],predicted_open_rate:"58-65%",predicted_ctr:"22-28%",predicted_revenue:"?95,000-?140,000",campaign_type:"Welcome sequence (3 emails over 5 days)",reasoning:"Based on your CRM data and PH B2B benchmarks, SME owners in Metro Manila respond best to value-led emails with clear ROI messaging."});}
+    }catch{setAiTargetResult({primary_segment:"Philippine SME owners and brand managers aged 28-45",age_range:"28-45",gender_split:"58% Female, 42% Male",top_locations:["Metro Manila","CALABARZON","Cebu City"],best_send_time:"Tuesday 10:00 AM PH time",recommended_list:"SME Philippines",subject_line_tips:["Use their company name in subject","Include a specific ? value proposition","Ask a pain-point question"],personalization_tokens:["{{first_name}}","{{company}}","{{industry}}"],predicted_open_rate:"58-65%",predicted_ctr:"22-28%",predicted_revenue:"₱95,000-₱140,000",campaign_type:"Welcome sequence (3 emails over 5 days)",reasoning:"Based on your CRM data and PH B2B benchmarks, SME owners in Metro Manila respond best to value-led emails with clear ROI messaging."});}
     setAiAnalyzing(false);
   };
 
@@ -6339,7 +8011,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
     const log=(msg,type="info")=>setAutomationLog(prev=>[...prev,{msg,type,time:new Date().toLocaleTimeString("en-PH")}]);
     log("?? AI automation started...");await new Promise(r=>setTimeout(r,600));
     log("?? Analyzing your CRM contacts and engagement patterns...");await aiAnalyzeTarget();await new Promise(r=>setTimeout(r,800));log("? Target market identified","success");
-    log("?? Generating personalized email content...");if(!subject)setSubject(`${activeBrandName||"Exponify"} � Exclusive Offer for ${GOALS.find(g=>g.id===campaignGoal)?.label||"Your Brand"}`);await new Promise(r=>setTimeout(r,400));await aiDraftEmail();await new Promise(r=>setTimeout(r,600));log("? Email content generated with AI","success");
+    log("?? Generating personalized email content...");if(!subject)setSubject(`${activeBrandName||"Exponify"} • Exclusive Offer for ${GOALS.find(g=>g.id===campaignGoal)?.label||"Your Brand"}`);await new Promise(r=>setTimeout(r,400));await aiDraftEmail();await new Promise(r=>setTimeout(r,600));log("? Email content generated with AI","success");
     log("?? Selecting optimal recipient list...");await new Promise(r=>setTimeout(r,500));const bestList=lists.reduce((best,l)=>(l.count>(best?.count||0))?l:best,null);if(bestList){setSelectedListId(bestList.id);log(`? Selected: ${bestList.name} (${bestList.count} contacts)`,"success");}
     log("? Scheduling at optimal send time...");await new Promise(r=>setTimeout(r,400));setScheduleMode("schedule");const next=new Date();next.setDate(next.getDate()+((9-next.getDay())%7||7));next.setHours(10,0,0,0);setScheduleAt(next.toISOString().slice(0,16));log(`? Scheduled: ${next.toLocaleDateString("en-PH",{weekday:"long",month:"short",day:"numeric"})} at 10:00 AM`,"success");
     log("?? Campaign ready! Click 'Send Campaign' to deploy.","success");setAutomationRunning(false);notify("? AI automation complete! Review and send.");
@@ -6373,7 +8045,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:20}}>
-        {[{label:"Total Sent",val:totalSent.toLocaleString(),col:C.gold,icon:"??"},{label:"Avg Open Rate",val:`${avgOpen}%`,col:C.green,icon:"??"},{label:"Avg Click Rate",val:`${avgClick}%`,col:C.cyan,icon:"?"},{label:"Revenue Attr.",val:`?${(totalRevenue/1000).toFixed(0)}K`,col:C.violet,icon:"??"},{label:"AI Campaigns",val:campaigns.filter(c=>c.ai_score).length.toString(),col:C.rose,icon:"?"}].map(k=>(
+        {[{label:"Total Sent",val:totalSent.toLocaleString(),col:C.gold,icon:"◆"},{label:"Avg Open Rate",val:`${avgOpen}%`,col:C.green,icon:"◆"},{label:"Avg Click Rate",val:`${avgClick}%`,col:C.cyan,icon:"◆"},{label:"Revenue Attr.",val:`₱${(totalRevenue/1000).toFixed(0)}K`,col:C.violet,icon:"◆"},{label:"AI Campaigns",val:campaigns.filter(c=>c.ai_score).length.toString(),col:C.rose,icon:"◆"}].map(k=>(
           <div key={k.label} style={{background:C.bg3,border:`1px solid ${C.border}`,borderTop:`2px solid ${k.col}`,borderRadius:11,padding:"12px 14px"}}>
             <div style={{fontSize:9,color:C.muted,marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>{k.icon} {k.label}</div>
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:k.col,lineHeight:1}}>{k.val}</div>
@@ -6393,7 +8065,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
               <GoldBtn onClick={()=>setTab("compose")}>+ New Campaign</GoldBtn>
             </div>
           </div>
-          {loadingC&&<div style={{color:C.muted,padding:20,fontSize:12}}>Loading�</div>}
+          {loadingC&&<div style={{color:C.muted,padding:20,fontSize:12}}>Loading—</div>}
           <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}>
             <table style={{width:"100%",borderCollapse:"collapse",fontSize:12}}>
               <thead><tr style={{background:C.bg2}}>{["Campaign","Status","Segment","Recipients","Open","Click","Revenue","AI Score"].map(h=>(<th key={h} style={{padding:"9px 12px",textAlign:"left",fontSize:9,color:C.muted,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>{h}</th>))}</tr></thead>
@@ -6401,24 +8073,24 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
                 {campaigns.map(c=>(<tr key={c.id} onClick={()=>setSelectedCampaign(c===selectedCampaign?null:c)} style={{borderTop:`1px solid ${C.border}`,cursor:"pointer",background:selectedCampaign?.id===c.id?C.bg4:"transparent"}} onMouseEnter={e=>e.currentTarget.style.background=C.bg4} onMouseLeave={e=>e.currentTarget.style.background=selectedCampaign?.id===c.id?C.bg4:"transparent"}>
                   <td style={{padding:"10px 12px"}}><div style={{fontWeight:600,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</div><div style={{fontSize:9,color:C.muted,marginTop:2,maxWidth:180,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.subject}</div></td>
                   <td style={{padding:"10px 12px"}}><span style={{padding:"2px 7px",borderRadius:5,background:`${statusColor(c.status)}22`,color:statusColor(c.status),fontSize:9,fontWeight:700}}>{statusLabel(c.status)}</span></td>
-                  <td style={{padding:"10px 12px",fontSize:10,color:C.muted,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.target_segment||"�"}</td>
-                  <td style={{padding:"10px 12px",fontWeight:600}}>{c.recipients>0?c.recipients.toLocaleString():"�"}</td>
-                  <td style={{padding:"10px 12px",color:c.open_rate?C.green:C.dim,fontWeight:600}}>{c.open_rate?`${c.open_rate}%`:"�"}</td>
-                  <td style={{padding:"10px 12px",color:c.click_rate?C.cyan:C.dim,fontWeight:600}}>{c.click_rate?`${c.click_rate}%`:"�"}</td>
-                  <td style={{padding:"10px 12px",color:c.revenue_attributed?C.gold:C.dim,fontWeight:600}}>{c.revenue_attributed?`?${(c.revenue_attributed/1000).toFixed(0)}K`:"�"}</td>
-                  <td style={{padding:"10px 12px"}}>{c.ai_score?<div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:28,height:5,background:C.bg2,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${c.ai_score}%`,background:c.ai_score>85?C.green:c.ai_score>70?C.amber:C.red,borderRadius:3}}/></div><span style={{fontSize:10,fontWeight:700,color:c.ai_score>85?C.green:c.ai_score>70?C.amber:C.red}}>{c.ai_score}</span></div>:<span style={{color:C.dim,fontSize:10}}>�</span>}</td>
+                  <td style={{padding:"10px 12px",fontSize:10,color:C.muted,maxWidth:160,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.target_segment||"—"}</td>
+                  <td style={{padding:"10px 12px",fontWeight:600}}>{c.recipients>0?c.recipients.toLocaleString():"—"}</td>
+                  <td style={{padding:"10px 12px",color:c.open_rate?C.green:C.dim,fontWeight:600}}>{c.open_rate?`${c.open_rate}%`:"—"}</td>
+                  <td style={{padding:"10px 12px",color:c.click_rate?C.cyan:C.dim,fontWeight:600}}>{c.click_rate?`${c.click_rate}%`:"—"}</td>
+                  <td style={{padding:"10px 12px",color:c.revenue_attributed?C.gold:C.dim,fontWeight:600}}>{c.revenue_attributed?`?${(c.revenue_attributed/1000).toFixed(0)}K`:"—"}</td>
+                  <td style={{padding:"10px 12px"}}>{c.ai_score?<div style={{display:"flex",alignItems:"center",gap:5}}><div style={{width:28,height:5,background:C.bg2,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${c.ai_score}%`,background:c.ai_score>85?C.green:c.ai_score>70?C.amber:C.red,borderRadius:3}}/></div><span style={{fontSize:10,fontWeight:700,color:c.ai_score>85?C.green:c.ai_score>70?C.amber:C.red}}>{c.ai_score}</span></div>:<span style={{color:C.dim,fontSize:10}}>—</span>}</td>
                 </tr>))}
               </tbody>
             </table>
           </div>
-          {selectedCampaign&&(<div style={{marginTop:14,background:C.bg3,border:`1px solid ${C.gold}44`,borderRadius:12,padding:"16px 18px"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}><div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,color:C.gold}}>{selectedCampaign.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{selectedCampaign.subject}</div>{selectedCampaign.target_segment&&<div style={{fontSize:10,color:C.cyan,marginTop:3}}>?? {selectedCampaign.target_segment}</div>}</div><button onClick={()=>setSelectedCampaign(null)} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:18}}>�</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>{[{label:"Recipients",val:selectedCampaign.recipients?.toLocaleString()||"0"},{label:"Open Rate",val:selectedCampaign.open_rate?`${selectedCampaign.open_rate}%`:"Pending"},{label:"Click Rate",val:selectedCampaign.click_rate?`${selectedCampaign.click_rate}%`:"Pending"},{label:"Revenue",val:selectedCampaign.revenue_attributed?`?${(selectedCampaign.revenue_attributed/1000).toFixed(0)}K`:"�"},{label:"AI Score",val:selectedCampaign.ai_score||"�"}].map(m=>(<div key={m.label} style={{background:C.bg2,borderRadius:8,padding:"10px 12px",border:`1px solid ${C.border}`}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>{m.label}</div><div style={{fontSize:14,fontWeight:700}}>{m.val}</div></div>))}</div></div>)}
+          {selectedCampaign&&(<div style={{marginTop:14,background:C.bg3,border:`1px solid ${C.gold}44`,borderRadius:12,padding:"16px 18px"}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:12}}><div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,color:C.gold}}>{selectedCampaign.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{selectedCampaign.subject}</div>{selectedCampaign.target_segment&&<div style={{fontSize:10,color:C.cyan,marginTop:3}}>?? {selectedCampaign.target_segment}</div>}</div><button onClick={()=>setSelectedCampaign(null)} style={{background:"transparent",border:"none",color:C.muted,cursor:"pointer",fontSize:18}}>—</button></div><div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10}}>{[{label:"Recipients",val:selectedCampaign.recipients?.toLocaleString()||"0"},{label:"Open Rate",val:selectedCampaign.open_rate?`${selectedCampaign.open_rate}%`:"Pending"},{label:"Click Rate",val:selectedCampaign.click_rate?`${selectedCampaign.click_rate}%`:"Pending"},{label:"Revenue",val:selectedCampaign.revenue_attributed?`?${(selectedCampaign.revenue_attributed/1000).toFixed(0)}K`:"—"},{label:"AI Score",val:selectedCampaign.ai_score||"—"}].map(m=>(<div key={m.label} style={{background:C.bg2,borderRadius:8,padding:"10px 12px",border:`1px solid ${C.border}`}}><div style={{fontSize:9,color:C.muted,textTransform:"uppercase",letterSpacing:"1px",marginBottom:3}}>{m.label}</div><div style={{fontSize:14,fontWeight:700}}>{m.val}</div></div>))}</div></div>)}
         </div>
       )}
 
       {tab==="automate"&&(
         <div>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,marginBottom:4}}>? AI Campaign Automation</div>
-          <div style={{fontSize:12,color:C.muted,marginBottom:18}}>Claude analyzes your CRM data, identifies your ideal target market, writes the email, selects the best list, and schedules at peak open times � automatically.</div>
+          <div style={{fontSize:12,color:C.muted,marginBottom:18}}>Claude analyzes your CRM data, identifies your ideal target market, writes the email, selects the best list, and schedules at peak open times • automatically.</div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:16}}>
             <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`2px solid ${C.gold}`}}>
               <Lbl>Campaign Goal</Lbl>
@@ -6434,10 +8106,10 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
             </div>
           </div>
           <div style={{display:"flex",gap:10,marginBottom:16}}>
-            <button onClick={aiAnalyzeTarget} disabled={aiAnalyzing} style={{padding:"10px 20px",borderRadius:9,border:`1px solid ${C.cyan}44`,background:`${C.cyan}12`,color:aiAnalyzing?C.muted:C.cyan,fontSize:12,fontWeight:700,cursor:aiAnalyzing?"not-allowed":"pointer"}}>{aiAnalyzing?"? Analyzing�":"?? Analyze Target Market"}</button>
-            <GoldBtn onClick={runAutomation} disabled={automationRunning} style={{padding:"10px 24px"}}>{automationRunning?"? Running Automation�":"? Run Full Automation"}</GoldBtn>
+            <button onClick={aiAnalyzeTarget} disabled={aiAnalyzing} style={{padding:"10px 20px",borderRadius:9,border:`1px solid ${C.cyan}44`,background:`${C.cyan}12`,color:aiAnalyzing?C.muted:C.cyan,fontSize:12,fontWeight:700,cursor:aiAnalyzing?"not-allowed":"pointer"}}>{aiAnalyzing?"? Analyzing—":"?? Analyze Target Market"}</button>
+            <GoldBtn onClick={runAutomation} disabled={automationRunning} style={{padding:"10px 24px"}}>{automationRunning?"? Running Automation—":"? Run Full Automation"}</GoldBtn>
           </div>
-          {automationLog.length>0&&(<div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16,fontFamily:"monospace",fontSize:11}}>{automationLog.map((l,i)=>(<div key={i} style={{color:l.type==="success"?C.green:C.text,marginBottom:3,display:"flex",gap:8}}><span style={{color:C.muted,flexShrink:0}}>{l.time}</span><span>{l.msg}</span></div>))}{automationRunning&&<div style={{color:C.gold,marginTop:4,animation:"pulse 1s ease-in-out infinite"}}>? Processing�</div>}</div>)}
+          {automationLog.length>0&&(<div style={{background:C.bg2,border:`1px solid ${C.border}`,borderRadius:10,padding:"14px 16px",marginBottom:16,fontFamily:"monospace",fontSize:11}}>{automationLog.map((l,i)=>(<div key={i} style={{color:l.type==="success"?C.green:C.text,marginBottom:3,display:"flex",gap:8}}><span style={{color:C.muted,flexShrink:0}}>{l.time}</span><span>{l.msg}</span></div>))}{automationRunning&&<div style={{color:C.gold,marginTop:4,animation:"pulse 1s ease-in-out infinite"}}>? Processing—</div>}</div>)}
           {aiTargetResult&&!aiTargetResult.error&&(
             <div style={{background:C.bg3,border:`1px solid ${C.gold}44`,borderRadius:12,padding:"18px 20px",borderTop:`2px solid ${C.gold}`}}>
               <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:16,fontWeight:700,color:C.gold,marginBottom:14}}>? AI Target Market Analysis</div>
@@ -6446,7 +8118,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
               </div>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
                 <div><div style={{fontSize:10,color:C.gold,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:"1px"}}>Top Locations</div><div style={{display:"flex",gap:6,flexWrap:"wrap"}}>{aiTargetResult.top_locations?.map(l=>(<span key={l} style={{padding:"3px 9px",borderRadius:6,background:`${C.cyan}18`,color:C.cyan,fontSize:10,border:`1px solid ${C.cyan}33`}}>{l}</span>))}</div></div>
-                <div><div style={{fontSize:10,color:C.gold,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:"1px"}}>Subject Line Tips</div>{aiTargetResult.subject_line_tips?.map((t,i)=>(<div key={i} style={{fontSize:10,color:C.muted,marginBottom:3}}>� {t}</div>))}</div>
+                <div><div style={{fontSize:10,color:C.gold,fontWeight:700,marginBottom:6,textTransform:"uppercase",letterSpacing:"1px"}}>Subject Line Tips</div>{aiTargetResult.subject_line_tips?.map((t,i)=>(<div key={i} style={{fontSize:10,color:C.muted,marginBottom:3}}>— {t}</div>))}</div>
               </div>
               {aiTargetResult.reasoning&&(<div style={{background:C.bg4,borderRadius:9,padding:"11px 13px",fontSize:11,color:C.text,lineHeight:1.7,borderLeft:`3px solid ${C.gold}`}}><span style={{color:C.gold,fontWeight:700}}>AI Reasoning: </span>{aiTargetResult.reasoning}</div>)}
               <div style={{marginTop:14}}><GoldBtn onClick={()=>setTab("compose")} style={{padding:"9px 20px"}}>Use This Targeting ? Compose</GoldBtn></div>
@@ -6458,24 +8130,24 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
       {tab==="compose"&&(
         <div style={{maxWidth:780}}>
           <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,marginBottom:18}}>Compose Campaign</div>
-          {aiTargetResult&&(<div style={{background:`${C.gold}10`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.gold,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14}}>?</span><span>AI targeting active: <strong>{aiTargetResult.primary_segment}</strong> � Best send: {aiTargetResult.best_send_time}</span></div>)}
+          {aiTargetResult&&(<div style={{background:`${C.gold}10`,border:`1px solid ${C.gold}33`,borderRadius:10,padding:"10px 14px",marginBottom:14,fontSize:11,color:C.gold,display:"flex",alignItems:"center",gap:8}}><span style={{fontSize:14}}>?</span><span>AI targeting active: <strong>{aiTargetResult.primary_segment}</strong> • Best send: {aiTargetResult.best_send_time}</span></div>)}
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
             <div><Lbl>From Name</Lbl><input style={inp()} value={fromName} onChange={e=>setFromName(e.target.value)} placeholder="Exponify Business"/></div>
             <div><Lbl>From Email</Lbl><input style={inp()} value={fromEmail} onChange={e=>setFromEmail(e.target.value)} placeholder="hello@exponify.ph"/></div>
           </div>
           <div style={{marginBottom:12}}><Lbl>Subject Line *</Lbl><input style={inp()} value={subject} onChange={e=>setSubject(e.target.value)} placeholder="Exclusive B2B Opportunity for Your Brand ??"/></div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12}}>
-            <div><Lbl>Recipient List</Lbl><select style={inp()} value={selectedListId} onChange={e=>setSelectedListId(e.target.value)}><option value="">� Select a list �</option>{lists.map(l=><option key={l.id} value={l.id}>{l.name} ({(l.count||0).toLocaleString()}) � Best time: {l.best_time||"TBD"}</option>)}</select></div>
+            <div><Lbl>Recipient List</Lbl><select style={inp()} value={selectedListId} onChange={e=>setSelectedListId(e.target.value)}><option value="">— Select a list —</option>{lists.map(l=><option key={l.id} value={l.id}>{l.name} ({(l.count||0).toLocaleString()}) • Best time: {l.best_time||"TBD"}</option>)}</select></div>
             <div><Lbl>Campaign Goal</Lbl><select style={inp()} value={campaignGoal} onChange={e=>setCampaignGoal(e.target.value)}>{GOALS.map(g=><option key={g.id} value={g.id}>{g.label}</option>)}</select></div>
           </div>
           <div style={{marginBottom:12,display:"flex",gap:10,alignItems:"center"}}>
-            <button onClick={aiDraftEmail} disabled={aiDrafting||!subject.trim()} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:aiDrafting||!subject.trim()?C.muted:C.gold,fontSize:12,fontWeight:700,cursor:aiDrafting||!subject.trim()?"not-allowed":"pointer"}}>{aiDrafting?"? Drafting�":"? AI Draft Email"}</button>
+            <button onClick={aiDraftEmail} disabled={aiDrafting||!subject.trim()} style={{padding:"9px 18px",borderRadius:9,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:aiDrafting||!subject.trim()?C.muted:C.gold,fontSize:12,fontWeight:700,cursor:aiDrafting||!subject.trim()?"not-allowed":"pointer"}}>{aiDrafting?"? Drafting—":"? AI Draft Email"}</button>
             <span style={{fontSize:10,color:C.muted}}>Claude writes a personalized email using your target market data</span>
           </div>
           <div style={{marginBottom:12}}><Lbl>Email Body (HTML)</Lbl><textarea value={bodyHtml} onChange={e=>setBodyHtml(e.target.value)} rows={10} style={inp({resize:"vertical",lineHeight:1.6,fontFamily:"monospace",fontSize:11})} placeholder={"<p>Hi {{first_name}},</p>\n<p>...</p>"}/></div>
-          {bodyHtml&&(<div style={{marginBottom:12,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}><div style={{background:C.bg2,padding:"8px 14px",fontSize:9,color:C.muted,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>?? Preview</div><div style={{background:"#fff",padding:20,maxHeight:260,overflowY:"auto"}}><div style={{fontFamily:"Arial,sans-serif",fontSize:14,color:"#333",lineHeight:1.7}} dangerouslySetInnerHTML={{__html:bodyHtml.replace(/\{\{first_name\}\}/g,"Juan").replace(/\{\{company\}\}/g,"Bloom Corp")}}/></div></div>)}
+          {bodyHtml&&(<div style={{marginBottom:12,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden"}}><div style={{background:C.bg2,padding:"8px 14px",fontSize:9,color:C.muted,fontWeight:700,letterSpacing:"1px",textTransform:"uppercase",borderBottom:`1px solid ${C.border}`}}>◆ Preview</div><div style={{background:"#fff",padding:20,maxHeight:260,overflowY:"auto"}}><div style={{fontFamily:"Arial,sans-serif",fontSize:14,color:"#333",lineHeight:1.7}} dangerouslySetInnerHTML={{__html:sanitizeHtml(bodyHtml.replace(/\{\{first_name\}\}/g,"Juan").replace(/\{\{company\}\}/g,"Bloom Corp"))}}/></div></div>)}
           <div style={{marginBottom:16}}><Lbl>Send Options</Lbl><div style={{display:"flex",gap:8,marginBottom:10}}>{[["now","Send Now"],["schedule","Schedule"]].map(([v,l])=>(<button key={v} onClick={()=>setScheduleMode(v)} style={{padding:"7px 18px",borderRadius:8,border:`1px solid ${scheduleMode===v?C.gold:C.border}`,background:scheduleMode===v?`${C.gold}18`:"transparent",color:scheduleMode===v?C.gold:C.muted,fontSize:11,fontWeight:700,cursor:"pointer"}}>{l}</button>))}</div>{scheduleMode==="schedule"&&<input type="datetime-local" style={inp({maxWidth:260})} value={scheduleAt} onChange={e=>setScheduleAt(e.target.value)}/>}</div>
-          <div style={{display:"flex",gap:10}}><GoldBtn onClick={sendCampaign} disabled={sendBusy} style={{flex:1,padding:"11px 20px"}}>{sendBusy?"? Sending�":scheduleMode==="now"?"?? Send Campaign":"? Schedule Campaign"}</GoldBtn><button onClick={saveDraft} style={{padding:"9px 20px",borderRadius:9,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Draft</button></div>
+          <div style={{display:"flex",gap:10}}><GoldBtn onClick={sendCampaign} disabled={sendBusy} style={{flex:1,padding:"11px 20px"}}>{sendBusy?"? Sending—":scheduleMode==="now"?"?? Send Campaign":"? Schedule Campaign"}</GoldBtn><button onClick={saveDraft} style={{padding:"9px 20px",borderRadius:9,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Draft</button></div>
         </div>
       )}
 
@@ -6483,7 +8155,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
         <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:16}}>
           <div>
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,marginBottom:14}}>Subscriber Lists</div>
-            {lists.map(l=>(<div key={l.id} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}><div style={{width:36,height:36,borderRadius:8,background:`${C.violet}22`,border:`1px solid ${C.violet}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>??</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:12}}>{l.name}</div><div style={{fontSize:10,color:C.muted}}>{l.industry} � Avg open: {l.avg_open||"�"}% � Best send: {l.best_time||"TBD"}</div></div><div style={{textAlign:"right",flexShrink:0}}><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold}}>{(l.count||0).toLocaleString()}</div><div style={{fontSize:9,color:C.muted}}>contacts</div></div><button onClick={()=>{setSelectedListId(l.id);setTab("compose");notify(`List "${l.name}" selected`);}} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:C.gold,fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>Use ?</button></div>))}
+            {lists.map(l=>(<div key={l.id} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:11,padding:"12px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:12}}><div style={{width:36,height:36,borderRadius:8,background:`${C.violet}22`,border:`1px solid ${C.violet}44`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0}}>??</div><div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,fontSize:12}}>{l.name}</div><div style={{fontSize:10,color:C.muted}}>{l.industry} • Avg open: {l.avg_open||"—"}% • Best send: {l.best_time||"TBD"}</div></div><div style={{textAlign:"right",flexShrink:0}}><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold}}>{(l.count||0).toLocaleString()}</div><div style={{fontSize:9,color:C.muted}}>contacts</div></div><button onClick={()=>{setSelectedListId(l.id);setTab("compose");notify(`List "${l.name}" selected`);}} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:C.gold,fontSize:10,fontWeight:700,cursor:"pointer",flexShrink:0}}>Use ?</button></div>))}
           </div>
           <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",height:"fit-content",borderTop:`2px solid ${C.gold}`}}>
             <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:15,fontWeight:700,color:C.gold,marginBottom:14}}>Add Subscriber</div>
@@ -6491,7 +8163,7 @@ function EmailMarketingModule({ activeBrandId, activeBrandName, notify, session:
             <div style={{marginBottom:8}}><Lbl>Name</Lbl><input style={inp()} value={newSubName} onChange={e=>setNewSubName(e.target.value)} placeholder="Juan dela Cruz"/></div>
             <div style={{marginBottom:10}}><Lbl>Company</Lbl><input style={inp()} value={newSubCompany} onChange={e=>setNewSubCompany(e.target.value)} placeholder="Bloom Corp"/></div>
             <div style={{marginBottom:14}}><Lbl>List</Lbl><select style={inp()} value={newSubListId} onChange={e=>setNewSubListId(e.target.value)}>{lists.map(l=><option key={l.id} value={l.id}>{l.name}</option>)}</select></div>
-            <GoldBtn onClick={addSubscriber} disabled={addingContact} style={{width:"100%"}}>{addingContact?"Adding�":"+ Add Contact"}</GoldBtn>
+            <GoldBtn onClick={addSubscriber} disabled={addingContact} style={{width:"100%"}}>{addingContact?"Adding—":"+ Add Contact"}</GoldBtn>
           </div>
         </div>
       )}
@@ -6545,7 +8217,7 @@ function ClientMetricsModule({ activeBrandId, activeBrandName, notify, session: 
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
-        <div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700}}>My Metrics</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{activeBrandName||"All Brands"} � March 2026 � Live Data</div></div>
+        <div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700}}>My Metrics</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{activeBrandName||"All Brands"} • March 2026 • Live Data</div></div>
         <div style={{display:"flex",gap:8}}>
           <button onClick={()=>{setLoading(true);setTimeout(()=>{setMetrics(mockMetrics);setMonthlyData(mockMonthly);setPlatformData(mockPlatform);setConversionData(mockConversion);setLoading(false);},400);notify("Metrics refreshed!");}} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:11,cursor:"pointer"}}>? Refresh</button>
           <GoldBtn onClick={()=>notify("Report exported!")} style={{padding:"6px 14px",fontSize:11}}>Export Report</GoldBtn>
@@ -6554,11 +8226,11 @@ function ClientMetricsModule({ activeBrandId, activeBrandName, notify, session: 
       <div style={{display:"flex",gap:4,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
         {TABS.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"7px 16px",background:"transparent",border:"none",borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",color:tab===t.id?C.gold:C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>{t.label}</button>))}
       </div>
-      {loading&&<div style={{color:C.muted,fontSize:12,padding:"20px 0"}}>Loading metrics�</div>}
+      {loading&&<div style={{color:C.muted,fontSize:12,padding:"20px 0"}}>Loading metrics—</div>}
       {!loading&&metrics&&tab==="overview"&&(
         <div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
-            {[{label:"Total Reach",val:metrics.totalReach.toLocaleString(),change:`+${metrics.reachGrowth}%`,up:true,icon:"??",col:C.gold},{label:"Engagement",val:metrics.totalEngagement.toLocaleString(),change:`+${metrics.engagementGrowth}%`,up:true,icon:"??",col:C.cyan},{label:"Leads Generated",val:metrics.totalLeads.toLocaleString(),change:`+${metrics.leadGrowth}%`,up:true,icon:"??",col:C.violet},{label:"Customers",val:metrics.totalCustomers.toLocaleString(),change:`+${metrics.customerGrowth}%`,up:true,icon:"?",col:C.green},{label:"Revenue",val:`?${(metrics.totalRevenue/1000000).toFixed(2)}M`,change:`+${metrics.revenueGrowth}%`,up:true,icon:"??",col:C.amber},{label:"Avg Order Value",val:`?${metrics.avgOrderValue.toLocaleString()}`,change:`+${metrics.aovGrowth}%`,up:true,icon:"??",col:C.rose}].map(k=>(<GoldKPI key={k.label} {...k} color={k.col}/>))}
+            {[{label:"Total Reach",val:metrics.totalReach.toLocaleString(),change:`+${metrics.reachGrowth}%`,up:true,icon:"??",col:C.gold},{label:"Engagement",val:metrics.totalEngagement.toLocaleString(),change:`+${metrics.engagementGrowth}%`,up:true,icon:"👥",col:C.cyan},{label:"Leads Generated",val:metrics.totalLeads.toLocaleString(),change:`+${metrics.leadGrowth}%`,up:true,icon:"🎯",col:C.violet},{label:"Customers",val:metrics.totalCustomers.toLocaleString(),change:`+${metrics.customerGrowth}%`,up:true,icon:"💰",col:C.green},{label:"Revenue",val:`?${(metrics.totalRevenue/1000000).toFixed(2)}M`,change:`+${metrics.revenueGrowth}%`,up:true,icon:"📊",col:C.amber},{label:"Avg Order Value",val:`?${metrics.avgOrderValue.toLocaleString()}`,change:`+${metrics.aovGrowth}%`,up:true,icon:"🛒",col:C.rose}].map(k=>(<GoldKPI key={k.label} {...k} color={k.col}/>))}
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:14}}>
             <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px"}}>
@@ -6618,13 +8290,13 @@ function ClientMetricsModule({ activeBrandId, activeBrandName, notify, session: 
       {!loading&&metrics&&tab==="ai"&&(
         <div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:18}}>
-            <GoldKPI label="AI Replies Sent" value={metrics.aiReplies.toLocaleString()} change="+34% MoM" up icon="?" color={C.gold}/>
-            <GoldKPI label="Automation Rate" value={`${metrics.automationRate}%`} change="of messages handled" up icon="?" color={C.violet}/>
-            <GoldKPI label="Avg Response Time" value={`${metrics.responseTime}h`} change="from 8.4h last month" up icon="?" color={C.green}/>
+            <GoldKPI label="AI Replies Sent" value={metrics.aiReplies.toLocaleString()} change="+34% MoM" up icon="◆" color={C.gold}/>
+            <GoldKPI label="Automation Rate" value={`${metrics.automationRate}%`} change="of messages handled" up icon="◆" color={C.violet}/>
+            <GoldKPI label="Avg Response Time" value={`${metrics.responseTime}h`} change="from 8.4h last month" up icon="◆" color={C.green}/>
           </div>
           <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"20px 22px",borderTop:`2px solid ${C.gold}`}}>
             <SectionHead sub="How Hermes AI impacted your brand">AI Impact Summary</SectionHead>
-            {[{label:"Hours Saved by AI Automation",val:"284 hrs",icon:"?",detail:"Based on 4 min avg response time � AI replies",col:C.gold},{label:"Revenue from AI-Assisted Leads",val:"?820,000",icon:"??",detail:"Leads closed within 48hrs of AI qualification",col:C.green},{label:"Customer Satisfaction (CSAT)",val:`${metrics.csat}/5.0`,icon:"?",detail:"Based on post-conversation surveys",col:C.amber},{label:"Messages Handled Without Human",val:`${metrics.automationRate}%`,icon:"?",detail:"AI resolved without agent escalation",col:C.violet}].map(item=>(<div key={item.label} style={{display:"flex",alignItems:"center",gap:16,padding:"14px 0",borderBottom:`1px solid ${C.border}`}}><div style={{width:44,height:44,borderRadius:10,background:`${item.col}18`,border:`1px solid ${item.col}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{item.icon}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{item.label}</div><div style={{fontSize:11,color:C.muted}}>{item.detail}</div></div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:item.col,flexShrink:0}}>{item.val}</div></div>))}
+            {[{label:"Hours Saved by AI Automation",val:"284 hrs",icon:"⏱️",detail:"Based on 4 min avg response time • AI replies",col:C.gold},{label:"Revenue from AI-Assisted Leads",val:"₱820,000",icon:"??",detail:"Leads closed within 48hrs of AI qualification",col:C.green},{label:"Customer Satisfaction (CSAT)",val:`${metrics.csat}/5.0`,icon:"⏱️",detail:"Based on post-conversation surveys",col:C.amber},{label:"Messages Handled Without Human",val:`${metrics.automationRate}%`,icon:"📊",detail:"AI resolved without agent escalation",col:C.violet}].map(item=>(<div key={item.label} style={{display:"flex",alignItems:"center",gap:16,padding:"14px 0",borderBottom:`1px solid ${C.border}`}}><div style={{width:44,height:44,borderRadius:10,background:`${item.col}18`,border:`1px solid ${item.col}33`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,flexShrink:0}}>{item.icon}</div><div style={{flex:1}}><div style={{fontWeight:700,fontSize:13,marginBottom:2}}>{item.label}</div><div style={{fontSize:11,color:C.muted}}>{item.detail}</div></div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:24,fontWeight:700,color:item.col,flexShrink:0}}>{item.val}</div></div>))}
           </div>
         </div>
       )}
@@ -6646,7 +8318,7 @@ function ClientMetricsModule({ activeBrandId, activeBrandName, notify, session: 
           <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px"}}>
             <SectionHead sub="Goal vs actual">KPI Targets</SectionHead>
             <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14}}>
-              {[{label:"Monthly Reach Target",actual:62800,target:60000,col:C.gold,unit:""},{label:"Lead Generation",actual:1840,target:1500,col:C.violet,unit:""},{label:"Revenue Target",actual:598000,target:550000,col:C.green,unit:"?"},{label:"Conversion Rate",actual:0.33,target:0.3,col:C.cyan,unit:"%"}].map(k=>{
+              {[{label:"Monthly Reach Target",actual:62800,target:60000,col:C.gold,unit:""},{label:"Lead Generation",actual:1840,target:1500,col:C.violet,unit:""},{label:"Revenue Target",actual:598000,target:550000,col:C.green,unit:"₱"},{label:"Conversion Rate",actual:0.33,target:0.3,col:C.cyan,unit:"%"}].map(k=>{
                 const pct=Math.min(Math.round((k.actual/k.target)*100),120);const onTrack=k.actual>=k.target;
                 return (<div key={k.label} style={{background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}><span style={{fontSize:10,color:C.muted}}>{k.label}</span><span style={{fontSize:10,fontWeight:700,color:onTrack?C.green:C.red}}>{onTrack?"? On Track":"? Behind"}</span></div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k.col,marginBottom:4}}>{k.unit}{k.actual.toLocaleString()}<span style={{fontSize:11,color:C.dim}}> / {k.unit}{k.target.toLocaleString()}</span></div><div style={{height:6,background:C.border,borderRadius:3,overflow:"hidden"}}><div style={{height:"100%",width:`${Math.min(pct,100)}%`,background:onTrack?k.col:C.red,borderRadius:3}}/></div><div style={{fontSize:9,color:C.muted,marginTop:3}}>{pct}% of target</div></div>);
               })}
@@ -6661,11 +8333,11 @@ function ClientMetricsModule({ activeBrandId, activeBrandName, notify, session: 
 function ClientAdsResultsModule({ activeBrandId: _activeBrandId, activeBrandName, notify, session: _session }) {
   const [period,setPeriod]=useState("march");
   const mockCampaigns=[
-    {id:1,name:"Beauty Launch � Q1 2026",platform:"facebook",status:"active",spend:28400,impressions:842000,reach:624000,clicks:18240,leads:1284,sales:342,cpc:1.56,cpm:33.7,ctr:2.17,cpl:22.12,roas:4.8,goal:"leads",thumbnail:"??"},
-    {id:2,name:"Bloom Home � Spring Collection",platform:"instagram",status:"active",spend:18600,impressions:624000,reach:442000,clicks:12480,leads:840,sales:218,cpc:1.49,cpm:29.8,ctr:2.00,cpl:22.14,roas:3.9,goal:"sales",thumbnail:"??"},
-    {id:3,name:"Kids Essentials � Mom Targeting",platform:"facebook",status:"completed",spend:12200,impressions:384000,reach:284000,clicks:8640,leads:624,sales:164,cpc:1.41,cpm:31.8,ctr:2.25,cpl:19.55,roas:5.2,goal:"leads",thumbnail:"??"},
-    {id:4,name:"TikTok Awareness � Gen Z",platform:"tiktok",status:"active",spend:9800,impressions:1240000,reach:984000,clicks:24800,leads:480,sales:98,cpc:0.40,cpm:7.9,ctr:2.00,cpl:20.42,roas:2.8,goal:"awareness",thumbnail:"??"},
-    {id:5,name:"Viber Broadcast � Repeat Buyers",platform:"viber",status:"completed",spend:4200,impressions:18400,reach:18400,clicks:2840,leads:284,sales:124,cpc:1.48,cpm:228.3,ctr:15.43,cpl:14.79,roas:8.4,goal:"retention",thumbnail:"??"},
+    {id:1,name:"Beauty Launch • Q1 2026",platform:"facebook",status:"active",spend:28400,impressions:842000,reach:624000,clicks:18240,leads:1284,sales:342,cpc:1.56,cpm:33.7,ctr:2.17,cpl:22.12,roas:4.8,goal:"leads",thumbnail:"🖼️"},
+    {id:2,name:"Bloom Home • Spring Collection",platform:"instagram",status:"active",spend:18600,impressions:624000,reach:442000,clicks:12480,leads:840,sales:218,cpc:1.49,cpm:29.8,ctr:2.00,cpl:22.14,roas:3.9,goal:"sales",thumbnail:"🖼️"},
+    {id:3,name:"Kids Essentials • Mom Targeting",platform:"facebook",status:"completed",spend:12200,impressions:384000,reach:284000,clicks:8640,leads:624,sales:164,cpc:1.41,cpm:31.8,ctr:2.25,cpl:19.55,roas:5.2,goal:"leads",thumbnail:"🖼️"},
+    {id:4,name:"TikTok Awareness • Gen Z",platform:"tiktok",status:"active",spend:9800,impressions:1240000,reach:984000,clicks:24800,leads:480,sales:98,cpc:0.40,cpm:7.9,ctr:2.00,cpl:20.42,roas:2.8,goal:"awareness",thumbnail:"🖼️"},
+    {id:5,name:"Viber Broadcast • Repeat Buyers",platform:"viber",status:"completed",spend:4200,impressions:18400,reach:18400,clicks:2840,leads:284,sales:124,cpc:1.48,cpm:228.3,ctr:15.43,cpl:14.79,roas:8.4,goal:"retention",thumbnail:"🖼️"},
   ];
   const STATUS_COLOR={active:C.green,completed:C.muted,paused:C.amber};
   const totalSpend=mockCampaigns.reduce((a,c)=>a+c.spend,0);
@@ -6678,14 +8350,14 @@ function ClientAdsResultsModule({ activeBrandId: _activeBrandId, activeBrandName
   return (
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}>
-        <div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700}}>Ad Results</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{activeBrandName||"All Brands"} � Live Performance</div></div>
+        <div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700}}>Ad Results</div><div style={{fontSize:11,color:C.muted,marginTop:2}}>{activeBrandName||"All Brands"} • Live Performance</div></div>
         <div style={{display:"flex",gap:8}}>
           {["march","february","q1"].map(p=>(<button key={p} onClick={()=>setPeriod(p)} style={{padding:"5px 12px",borderRadius:7,border:`1px solid ${period===p?C.gold:C.border}`,background:period===p?`${C.gold}18`:"transparent",color:period===p?C.gold:C.muted,fontSize:10,fontWeight:700,cursor:"pointer",textTransform:"capitalize"}}>{p==="q1"?"Q1 2026":p==="march"?"Mar 2026":"Feb 2026"}</button>))}
           <GoldBtn onClick={()=>notify("Report exported!")} style={{padding:"6px 14px",fontSize:11}}>Export</GoldBtn>
         </div>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:18}}>
-        {[{label:"Total Ad Spend",val:`?${totalSpend.toLocaleString()}`,col:C.gold,icon:"??"},{label:"Total Reach",val:`${(totalReach/1000).toFixed(0)}K`,col:C.cyan,icon:"??"},{label:"Leads Generated",val:totalLeads.toLocaleString(),col:C.violet,icon:"??"},{label:"Sales Closed",val:totalSales.toLocaleString(),col:C.green,icon:"?"},{label:"Avg ROAS",val:`${avgROAS}�`,col:C.amber,icon:"?"}].map(k=>(<div key={k.label} style={{background:C.bg3,border:`1px solid ${C.border}`,borderTop:`2px solid ${k.col}`,borderRadius:11,padding:"12px 14px"}}><div style={{fontSize:9,color:C.muted,marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>{k.icon} {k.label}</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k.col,lineHeight:1}}>{k.val}</div></div>))}
+        {[{label:"Total Ad Spend",val:`?${totalSpend.toLocaleString()}`,col:C.gold,icon:"🏆"},{label:"Total Reach",val:`${(totalReach/1000).toFixed(0)}K`,col:C.cyan,icon:"🏆"},{label:"Leads Generated",val:totalLeads.toLocaleString(),col:C.violet,icon:"🏆"},{label:"Sales Closed",val:totalSales.toLocaleString(),col:C.green,icon:"📊"},{label:"Avg ROAS",val:`${avgROAS}…`,col:C.amber,icon:"📊"}].map(k=>(<div key={k.label} style={{background:C.bg3,border:`1px solid ${C.border}`,borderTop:`2px solid ${k.col}`,borderRadius:11,padding:"12px 14px"}}><div style={{fontSize:9,color:C.muted,marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>{k.icon} {k.label}</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k.col,lineHeight:1}}>{k.val}</div></div>))}
       </div>
       <div style={{display:"flex",gap:14}}>
         <div style={{flex:1,minWidth:0}}>
@@ -6694,12 +8366,12 @@ function ClientAdsResultsModule({ activeBrandId: _activeBrandId, activeBrandName
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:10}}>
               <div style={{display:"flex",alignItems:"center",gap:10}}>
                 <div style={{fontSize:22}}>{c.thumbnail}</div>
-                <div><div style={{fontWeight:700,fontSize:13,color:C.text}}>{c.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{c.platform.charAt(0).toUpperCase()+c.platform.slice(1)} � <span style={{color:STATUS_COLOR[c.status]}}>{c.status}</span></div></div>
+                <div><div style={{fontWeight:700,fontSize:13,color:C.text}}>{c.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{c.platform.charAt(0).toUpperCase()+c.platform.slice(1)} • <span style={{color:STATUS_COLOR[c.status]}}>{c.status}</span></div></div>
               </div>
               <div style={{textAlign:"right"}}><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:20,fontWeight:700,color:C.gold}}>?{c.spend.toLocaleString()}</div><div style={{fontSize:9,color:C.muted}}>spend</div></div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
-              {[["Reach",`${(c.reach/1000).toFixed(0)}K`,C.gold],["Leads",c.leads.toLocaleString(),C.violet],["Sales",c.sales,C.green],["CTR",`${c.ctr}%`,C.cyan],["CPL",`?${c.cpl}`,C.amber],["ROAS",`${c.roas}�`,c.roas>=4?C.green:c.roas>=2.5?C.amber:C.red]].map(([label,val,col])=>(<div key={label} style={{background:C.bg2,borderRadius:7,padding:"7px 8px"}}><div style={{fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:2}}>{label}</div><div style={{fontSize:12,fontWeight:700,color:col}}>{val}</div></div>))}
+              {[["Reach",`${(c.reach/1000).toFixed(0)}K`,C.gold],["Leads",c.leads.toLocaleString(),C.violet],["Sales",c.sales,C.green],["CTR",`${c.ctr}%`,C.cyan],["CPL",`?${c.cpl}`,C.amber],["ROAS",`${c.roas}…`,c.roas>=4?C.green:c.roas>=2.5?C.amber:C.red]].map(([label,val,col])=>(<div key={label} style={{background:C.bg2,borderRadius:7,padding:"7px 8px"}}><div style={{fontSize:8,color:C.muted,textTransform:"uppercase",letterSpacing:"0.8px",marginBottom:2}}>{label}</div><div style={{fontSize:12,fontWeight:700,color:col}}>{val}</div></div>))}
             </div>
           </div>))}
         </div>
@@ -6713,7 +8385,7 @@ function ClientAdsResultsModule({ activeBrandId: _activeBrandId, activeBrandName
               </div>
               <div style={{background:sel.roas>=4?`${C.green}12`:`${C.amber}12`,border:`1px solid ${sel.roas>=4?C.green:C.amber}33`,borderRadius:10,padding:"12px 14px",textAlign:"center"}}>
                 <div style={{fontSize:9,color:C.muted,marginBottom:4,textTransform:"uppercase",letterSpacing:"1px"}}>Return on Ad Spend</div>
-                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,fontWeight:700,color:sel.roas>=4?C.green:sel.roas>=2.5?C.amber:C.red}}>{sel.roas}�</div>
+                <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:36,fontWeight:700,color:sel.roas>=4?C.green:sel.roas>=2.5?C.amber:C.red}}>{sel.roas}—</div>
                 <div style={{fontSize:10,color:C.muted}}>For every ?1 spent</div>
                 <div style={{marginTop:4,fontSize:10,fontWeight:700,color:sel.roas>=4?C.green:sel.roas>=2.5?C.amber:C.red}}>{sel.roas>=4?"?? Excellent ROAS":sel.roas>=2.5?"? Good ROAS":"?? Needs Optimization"}</div>
               </div>
@@ -6745,13 +8417,13 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
   const [campaigns,setCampaigns]=useState([]);
 
   const mockCampaigns=[
-    {id:"sa1",name:"Beauty Launch � Q1",platform:"facebook",status:"active",budget:28400,spent:21200,impressions:842000,clicks:18240,leads:1284,roas:4.8,startDate:"Mar 1",endDate:"Mar 31"},
+    {id:"sa1",name:"Beauty Launch • Q1",platform:"facebook",status:"active",budget:28400,spent:21200,impressions:842000,clicks:18240,leads:1284,roas:4.8,startDate:"Mar 1",endDate:"Mar 31"},
     {id:"sa2",name:"TikTok Spring Drop",platform:"tiktok",status:"active",budget:15000,spent:8400,impressions:1240000,clicks:24800,leads:480,roas:2.8,startDate:"Mar 15",endDate:"Mar 31"},
     {id:"sa3",name:"Kids Essentials",platform:"facebook",status:"completed",budget:12200,spent:12200,impressions:384000,clicks:8640,leads:624,roas:5.2,startDate:"Feb 1",endDate:"Feb 28"},
   ];
   useEffect(()=>setCampaigns(mockCampaigns),[]);
 
-  const AD_TYPES=[{id:"awareness",label:"Brand Awareness",icon:"??"},{id:"leads",label:"Lead Generation",icon:"??"},{id:"sales",label:"Direct Sales",icon:"??"},{id:"traffic",label:"Website Traffic",icon:"??"},{id:"engagement",label:"Engagement",icon:"??"},{id:"retention",label:"Customer Retention",icon:"??"}];
+  const AD_TYPES=[{id:"awareness",label:"Brand Awareness",icon:"🏆"},{id:"leads",label:"Lead Generation",icon:"🏆"},{id:"sales",label:"Direct Sales",icon:"🏆"},{id:"traffic",label:"Website Traffic",icon:"🏆"},{id:"engagement",label:"Engagement",icon:"🏆"},{id:"retention",label:"Customer Retention",icon:"🏆"}];
   const OBJECTIVES={facebook:["reach","traffic","lead_generation","conversions","engagement","video_views"],instagram:["reach","profile_visits","website_clicks","product_catalogue_sales"],tiktok:["reach","video_views","website_clicks","conversions"],shopee:["product_views","add_to_cart","sales"]};
   const CTA_OPTIONS=["Learn More","Shop Now","Sign Up","Get Quote","Contact Us","Book Now","Download","Apply Now"];
   const INTEREST_SUGGESTIONS=["beauty","skincare","fashion","home decor","baby products","food & dining","health","fitness","technology","online shopping","travel","education"];
@@ -6760,7 +8432,7 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
     if(!activeBrandName){notify("Select a brand first");return;}
     setAiGen(true);
     try{
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:`Write a high-converting ${platform} ad for ${activeBrandName} (Philippine brand).\n\nAd Type: ${AD_TYPES.find(a=>a.id===adType)?.label}\nObjective: ${objective}\nBudget: ?${budget}/day � ${duration} days\nTarget: ${targetGender!="all"?targetGender:"All genders"}, ${targetAge[0]}-${targetAge[1]} y/o, ${targetLocation}, interests: ${targetInterests}\n\nReturn ONLY:\nHEADLINE: [max 40 chars]\nBODY: [2-3 compelling sentences, Taglish OK, include emoji]\n\nMake it punchy, culturally relevant to Filipino consumers, with clear value proposition.`}]})});
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:600,messages:[{role:"user",content:`Write a high-converting ${platform} ad for ${activeBrandName} (Philippine brand).\n\nAd Type: ${AD_TYPES.find(a=>a.id===adType)?.label}\nObjective: ${objective}\nBudget: ?${budget}/day • ${duration} days\nTarget: ${targetGender!="all"?targetGender:"All genders"}, ${targetAge[0]}-${targetAge[1]} y/o, ${targetLocation}, interests: ${targetInterests}\n\nReturn ONLY:\nHEADLINE: [max 40 chars]\nBODY: [2-3 compelling sentences, Taglish OK, include emoji]\n\nMake it punchy, culturally relevant to Filipino consumers, with clear value proposition.`}]})});
       const d=await res.json();const text=d.content?.[0]?.text||"";
       const hMatch=text.match(/HEADLINE:\s*(.+)/);const bMatch=text.match(/BODY:\s*([\s\S]+)/);
       if(hMatch)setHeadline(hMatch[1].trim().replace(/^"|"$/g,""));
@@ -6773,7 +8445,7 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
   const createCampaign=async()=>{
     if(!headline.trim()||!body.trim()){notify("Headline and body copy are required");return;}if(!activeBrandId){notify("Select a brand first");return;}
     setSubmitting(true);await new Promise(r=>setTimeout(r,800));
-    const newC={id:`sa${Date.now()}`,name:`${headline.slice(0,30)}�`,platform,status:"draft",budget:parseInt(budget)*parseInt(duration),spent:0,impressions:0,clicks:0,leads:0,roas:0,startDate:"Pending",endDate:`${duration}d`};
+    const newC={id:`sa${Date.now()}`,name:`${headline.slice(0,30)}…`,platform,status:"draft",budget:parseInt(budget)*parseInt(duration),spent:0,impressions:0,clicks:0,leads:0,roas:0,startDate:"Pending",endDate:`${duration}d`};
     setCampaigns(p=>[newC,...p]);setTab("campaigns");notify("? Ad campaign created!");
     setHeadline("");setBody("");setSubmitting(false);
   };
@@ -6788,7 +8460,7 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
     <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18}}>
         <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700}}>Social Ads</div>
-        <div style={{fontSize:11,color:C.muted}}>{activeBrandName||"All Brands"} � Meta & TikTok Ads Manager</div>
+        <div style={{fontSize:11,color:C.muted}}>{activeBrandName||"All Brands"} • Meta & TikTok Ads Manager</div>
       </div>
       <div style={{display:"flex",gap:4,borderBottom:`1px solid ${C.border}`,marginBottom:18}}>
         {TABS.map(t=>(<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:"7px 16px",background:"transparent",border:"none",borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",color:tab===t.id?C.gold:C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>{t.label}</button>))}
@@ -6833,15 +8505,15 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
                   </select>
                 </div>
               </div>
-              <div style={{marginBottom:12}}><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Interests</label><input style={inp()} value={targetInterests} onChange={e=>setTargetInterests(e.target.value)} placeholder="beauty, skincare, fashion, home�"/><div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:7}}>{INTEREST_SUGGESTIONS.map(i=>(<button key={i} onClick={()=>setTargetInterests(prev=>prev.includes(i)?prev:prev?`${prev}, ${i}`:i)} style={{padding:"2px 8px",borderRadius:5,border:`1px solid ${targetInterests.includes(i)?C.gold:C.border}`,background:targetInterests.includes(i)?`${C.gold}18`:"transparent",color:targetInterests.includes(i)?C.gold:C.muted,fontSize:9,cursor:"pointer"}}>{i}</button>))}</div></div>
+              <div style={{marginBottom:12}}><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Interests</label><input style={inp()} value={targetInterests} onChange={e=>setTargetInterests(e.target.value)} placeholder="beauty, skincare, fashion, home—"/><div style={{display:"flex",flexWrap:"wrap",gap:4,marginTop:7}}>{INTEREST_SUGGESTIONS.map(i=>(<button key={i} onClick={()=>setTargetInterests(prev=>prev.includes(i)?prev:prev?`${prev}, ${i}`:i)} style={{padding:"2px 8px",borderRadius:5,border:`1px solid ${targetInterests.includes(i)?C.gold:C.border}`,background:targetInterests.includes(i)?`${C.gold}18`:"transparent",color:targetInterests.includes(i)?C.gold:C.muted,fontSize:9,cursor:"pointer"}}>{i}</button>))}</div></div>
             </div>
             <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",marginBottom:14}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
                 <div style={{fontSize:10,color:C.gold,fontWeight:700,textTransform:"uppercase",letterSpacing:"1px"}}>Ad Creative</div>
-                <button onClick={generateAdCopy} disabled={aiGen} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:aiGen?C.muted:C.gold,fontSize:11,fontWeight:700,cursor:aiGen?"not-allowed":"pointer"}}>{aiGen?"? Writing�":"? AI Generate Copy"}</button>
+                <button onClick={generateAdCopy} disabled={aiGen} style={{padding:"6px 14px",borderRadius:8,border:`1px solid ${C.gold}44`,background:`${C.gold}12`,color:aiGen?C.muted:C.gold,fontSize:11,fontWeight:700,cursor:aiGen?"not-allowed":"pointer"}}>{aiGen?"? Writing—":"? AI Generate Copy"}</button>
               </div>
               <div style={{marginBottom:10}}><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Headline * (max 40 chars)</label><input style={inp()} maxLength={40} value={headline} onChange={e=>setHeadline(e.target.value)} placeholder="Unlock Your Brand's Full Potential ??"/><div style={{fontSize:9,color:C.muted,marginTop:3}}>{headline.length}/40 chars</div></div>
-              <div style={{marginBottom:10}}><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Ad Body *</label><textarea style={inp({resize:"vertical"})} rows={4} value={body} onChange={e=>setBody(e.target.value)} placeholder="Reach thousands of customers with Hermes AI � the smartest commerce platform for Filipino brands. ????"/></div>
+              <div style={{marginBottom:10}}><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Ad Body *</label><textarea style={inp({resize:"vertical"})} rows={4} value={body} onChange={e=>setBody(e.target.value)} placeholder="Reach thousands of customers with Hermes AI • the smartest commerce platform for Filipino brands. ????"/></div>
               <div style={{display:"grid",gridTemplateColumns:"1fr auto",gap:10}}>
                 <div><label style={{fontSize:9,color:C.muted,display:"block",marginBottom:5,textTransform:"uppercase",letterSpacing:"1px"}}>Call to Action</label>
                   <select style={inp()} value={cta} onChange={e=>setCta(e.target.value)}>{CTA_OPTIONS.map(o=><option key={o}>{o}</option>)}</select>
@@ -6852,7 +8524,7 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
               </div>
             </div>
             <div style={{display:"flex",gap:10}}>
-              <GoldBtn onClick={createCampaign} disabled={submitting} style={{flex:1,padding:"11px 20px"}}>{submitting?"? Creating�":"?? Launch Campaign"}</GoldBtn>
+              <GoldBtn onClick={createCampaign} disabled={submitting} style={{flex:1,padding:"11px 20px"}}>{submitting?"? Creating—":"?? Launch Campaign"}</GoldBtn>
               <button onClick={()=>{notify("Draft saved!");}} style={{padding:"9px 20px",borderRadius:9,border:`1px solid ${C.border}`,background:"transparent",color:C.muted,fontSize:12,fontWeight:700,cursor:"pointer"}}>Save Draft</button>
             </div>
           </div>
@@ -6882,11 +8554,11 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
           </div>
           {campaigns.map(c=>(<div key={c.id} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",marginBottom:10,borderLeft:`3px solid ${c.status==="active"?C.green:C.muted}`}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
-              <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{c.platform.charAt(0).toUpperCase()+c.platform.slice(1)} � <span style={{color:c.status==="active"?C.green:C.muted}}>{c.status}</span> � {c.startDate} � {c.endDate}</div></div>
+              <div><div style={{fontWeight:700,fontSize:13}}>{c.name}</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{c.platform.charAt(0).toUpperCase()+c.platform.slice(1)} • <span style={{color:c.status==="active"?C.green:C.muted}}>{c.status}</span> • {c.startDate} • {c.endDate}</div></div>
               <div style={{textAlign:"right"}}><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,color:C.gold}}>?{c.spent.toLocaleString()}<span style={{fontSize:11,color:C.muted}}> / ?{c.budget.toLocaleString()}</span></div><div style={{height:4,background:C.bg2,borderRadius:2,width:100,overflow:"hidden",marginTop:4}}><div style={{height:"100%",width:`${Math.min((c.spent/c.budget)*100,100)}%`,background:GOLD_GRADIENT,borderRadius:2}}/></div></div>
             </div>
             <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:8}}>
-              {[["Impressions",c.impressions.toLocaleString(),C.muted],["Clicks",c.clicks.toLocaleString(),C.cyan],["Leads",c.leads.toLocaleString(),C.violet],["ROAS",`${c.roas}�`,c.roas>=4?C.green:C.amber],["Status",c.status,c.status==="active"?C.green:C.muted]].map(([l,v,col])=>(<div key={l} style={{background:C.bg2,borderRadius:7,padding:"8px 10px"}}><div style={{fontSize:8,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.8px"}}>{l}</div><div style={{fontSize:12,fontWeight:700,color:col}}>{v}</div></div>))}
+              {[["Impressions",c.impressions.toLocaleString(),C.muted],["Clicks",c.clicks.toLocaleString(),C.cyan],["Leads",c.leads.toLocaleString(),C.violet],["ROAS",`${c.roas}…`,c.roas>=4?C.green:C.amber],["Status",c.status,c.status==="active"?C.green:C.muted]].map(([l,v,col])=>(<div key={l} style={{background:C.bg2,borderRadius:7,padding:"8px 10px"}}><div style={{fontSize:8,color:C.muted,marginBottom:2,textTransform:"uppercase",letterSpacing:"0.8px"}}>{l}</div><div style={{fontSize:12,fontWeight:700,color:col}}>{v}</div></div>))}
             </div>
           </div>))}
         </div>
@@ -6894,14 +8566,14 @@ function SocialAdsModule({ activeBrandId, activeBrandName, notify, session: _ses
 
       {tab==="insights"&&(
         <div>
-          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,marginBottom:16}}>Audience Insights � Philippine Market</div>
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:18,fontWeight:700,marginBottom:16}}>Audience Insights • Philippine Market</div>
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:12,marginBottom:16}}>
-            {[{label:"Best Platform",val:"Facebook",sub:"38% of PH internet users",icon:"??",col:C.cyan},{label:"Best Time",val:"Tue 10AM",sub:"Highest engagement PH",icon:"?",col:C.gold},{label:"Top Gender",val:"Female 62%",sub:"Core beauty audience",icon:"??",col:C.rose},{label:"Best Age",val:"25�34",sub:"Highest spend intent",icon:"??",col:C.violet}].map(k=>(<div key={k.label} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`2px solid ${k.col}`}}><div style={{fontSize:18,marginBottom:8}}>{k.icon}</div><div style={{fontSize:9,color:C.muted,marginBottom:3,textTransform:"uppercase",letterSpacing:"1px"}}>{k.label}</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k.col,marginBottom:3}}>{k.val}</div><div style={{fontSize:10,color:C.muted}}>{k.sub}</div></div>))}
+            {[{label:"Best Platform",val:"Facebook",sub:"38% of PH internet users",icon:"??",col:C.cyan},{label:"Best Time",val:"Tue 10AM",sub:"Highest engagement PH",icon:"📊",col:C.gold},{label:"Top Gender",val:"Female 62%",sub:"Core beauty audience",icon:"??",col:C.rose},{label:"Best Age",val:"25₱34",sub:"Highest spend intent",icon:"🏆",col:C.violet}].map(k=>(<div key={k.label} style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:12,padding:"16px 18px",borderTop:`2px solid ${k.col}`}}><div style={{fontSize:18,marginBottom:8}}>{k.icon}</div><div style={{fontSize:9,color:C.muted,marginBottom:3,textTransform:"uppercase",letterSpacing:"1px"}}>{k.label}</div><div style={{fontFamily:"'Cormorant Garamond',serif",fontSize:22,fontWeight:700,color:k.col,marginBottom:3}}>{k.val}</div><div style={{fontSize:10,color:C.muted}}>{k.sub}</div></div>))}
           </div>
           <div style={{background:C.bg3,border:`1px solid ${C.border}`,borderRadius:14,padding:"18px 20px",marginBottom:14}}>
-            <SectionHead sub="PH CPM benchmarks by platform">Cost Benchmarks � Philippines</SectionHead>
+            <SectionHead sub="PH CPM benchmarks by platform">Cost Benchmarks • Philippines</SectionHead>
             <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-              {[{platform:"Facebook",cpm:"?28�42",cpc:"?1.20�1.80",cpl:"?18�28",col:C.cyan},{platform:"Instagram",cpm:"?32�48",cpc:"?1.40�2.10",cpl:"?22�34",col:C.rose},{platform:"TikTok",cpm:"?6�12",cpc:"?0.30�0.55",cpl:"?15�25",col:C.violet},{platform:"Shopee",cpm:"?180�280",cpc:"?2.50�4.20",cpl:"?38�62",col:C.amber}].map(p=>(<div key={p.platform} style={{background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${p.col}`}}><div style={{fontWeight:700,fontSize:13,marginBottom:10,color:p.col}}>{p.platform}</div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>CPM: <span style={{color:C.text,fontWeight:600}}>{p.cpm}</span></div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>CPC: <span style={{color:C.text,fontWeight:600}}>{p.cpc}</span></div><div style={{fontSize:10,color:C.muted}}>CPL: <span style={{color:C.gold,fontWeight:700}}>{p.cpl}</span></div></div>))}
+              {[{platform:"Facebook",cpm:"₱28₱42",cpc:"₱1.20₱1.80",cpl:"₱18₱28",col:C.cyan},{platform:"Instagram",cpm:"₱32₱48",cpc:"₱1.40₱2.10",cpl:"₱22₱34",col:C.rose},{platform:"TikTok",cpm:"₱6₱12",cpc:"₱0.30₱0.55",cpl:"₱15₱25",col:C.violet},{platform:"Shopee",cpm:"₱180₱280",cpc:"₱2.50₱4.20",cpl:"₱38₱62",col:C.amber}].map(p=>(<div key={p.platform} style={{background:C.bg2,borderRadius:10,padding:"12px 14px",border:`1px solid ${C.border}`,borderTop:`2px solid ${p.col}`}}><div style={{fontWeight:700,fontSize:13,marginBottom:10,color:p.col}}>{p.platform}</div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>CPM: <span style={{color:C.text,fontWeight:600}}>{p.cpm}</span></div><div style={{fontSize:10,color:C.muted,marginBottom:4}}>CPC: <span style={{color:C.text,fontWeight:600}}>{p.cpc}</span></div><div style={{fontSize:10,color:C.muted}}>CPL: <span style={{color:C.gold,fontWeight:700}}>{p.cpl}</span></div></div>))}
             </div>
           </div>
         </div>

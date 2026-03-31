@@ -4,7 +4,7 @@ const path = require('path');
 const filePath = path.join(__dirname, 'src', 'app.jsx');
 let content = fs.readFileSync(filePath, 'utf8');
 
-// Replace ? icons with proper emojis
+// Batch 1: Module cards
 const replacements = [
   // Module cards
   { from: /icon:"\?",title:"Sacred Inbox"/g, to: 'icon:"📥",title:"Sacred Inbox"' },
@@ -16,6 +16,8 @@ const replacements = [
   { from: /icon:"\?",title:"Hermes AI Chatbot"/g, to: 'icon:"🤖",title:"Hermes AI Chatbot"' },
   { from: /icon:"\?",title:"Agora Social Ads"/g, to: 'icon:"📱",title:"Agora Social Ads"' },
   { from: /icon:"\?",title:"Brand-Trained Intelligence"/g, to: 'icon:"✨",title:"Brand-Trained Intelligence"' },
+  { from: /icon:"\?",desc:"Scheduling/g, to: 'icon:"💆",desc:"Scheduling' },
+  // Feature cards
   { from: /icon:"\?",title:"Taglish-Native Replies"/g, to: 'icon:"💬",title:"Taglish-Native Replies"' },
   { from: /icon:"\?",title:"Lead Qualification Engine"/g, to: 'icon:"🎯",title:"Lead Qualification Engine"' },
   { from: /icon:"\?",title:"Multi-Platform Unified"/g, to: 'icon:"🌐",title:"Multi-Platform Unified"' },
@@ -26,24 +28,39 @@ const replacements = [
   { from: /icon:"\?",title:"Audience Overlap Detector"/g, to: 'icon:"🔍",title:"Audience Overlap Detector"' },
   { from: /icon:"\?",title:"AI Budget Optimizer"/g, to: 'icon:"🧠",title:"AI Budget Optimizer"' },
   { from: /icon:"\?",title:"Attribution Stitching"/g, to: 'icon:"🔗",title:"Attribution Stitching"' },
-  { from: /icon:"\?",title:"Competitor Ad Spy"/g, to: 'icon:"🕵️",title:"Competitor Ad Spy"' },
-  // Industry labels
-  { from: /icon:"\?",desc:"Scheduling/g, to: 'icon:"💆",desc:"Scheduling' },
-  { from: /trend:"Micro-Influencers".*?icon:"\?"/g, to: 'trend:"Micro-Influencers",growth:"+67%",detail:"Nano & micro influencers (1K–50K) outperform macro with 4.8x higher engagement for Philippine brands.",icon:"⭐",color:C.gold,signal:"📈 Rising"' },
-  // Navigation icons
-  { from: /id:"inbox".*?icon:"\?"/g, to: 'id:"inbox",        icon:"📥",   label:"Inbox"' },
-  { from: /id:"metrics".*?icon:"\?"/g, to: 'id:"metrics",      icon:"📊",  label:"My Metrics"' },
-  { from: /id:"demographics".*?icon:"\?"/g, to: 'id:"demographics", icon:"👥",  label:"Demographics"' },
-  { from: /id:"chatbot".*?icon:"\?"/g, to: 'id:"chatbot",      icon:"🤖",  label:"AI Chatbot"' },
-  { from: /id:"admin".*?icon:"\?"/g, to: 'id:"admin",        icon:"⚙️",  label:"Admin Setup"' },
-  { from: /id:"leads".*?icon:"\?"/g, to: 'id:"leads",        icon:"🎯",  label:"Lead Scoring"' },
-  { from: /id:"timetrack".*?icon:"\?"/g, to: 'id:"timetrack",    icon:"⏱️",  label:"Time Tracking"' },
-  { from: /id:"legal".*?icon:"\?"/g, to: 'id:"legal",        icon:"⚖️",  label:"Legal"' },
+  // KPI cards
+  { from: /C\.gold,"\?\?"/g, to: 'C.gold,"📦"' },
+  { from: /C\.green,"\?\?"/g, to: 'C.green,"💰"' },
+  { from: /C\.amber,"\?\?"/g, to: 'C.amber,"📈"' },
+  { from: /C\.cyan,"\?\?"/g, to: 'C.cyan,"💎"' },
+  { from: /C\.rose,"\?\?"/g, to: 'C.rose,"🎯"' },
+  // Other patterns
+  { from: /\|\| "\?\?"/g, to: '|| "👤"' },
+  { from: /thumbnail:"\?\?"/g, to: 'thumbnail:"🖼️"' },
+  { from: /mobileMenuOpen \? "\?" : "\?"/g, to: 'mobileMenuOpen ? "✕" : "☰"' },
+  { from: /unit:"\?"/g, to: 'unit:"₱"' },
+  // Activity icons
+  { from: /message: "\?\?"/g, to: 'message: "💬"' },
+  { from: /call: "\?\?"/g, to: 'call: "📞"' },
+  { from: /email: "\?\?"/g, to: 'email: "📧"' },
+  { from: /note: "\?\?"/g, to: 'note: "📝"' },
+  { from: /stage_change: "\?\?"/g, to: 'stage_change: "🔄"' },
+  { from: /purchase: "\?\?"/g, to: 'purchase: "🛒"' },
+  // Trust badges
+  { from: /\["\?\?","Secured by Supabase"\]/g, to: '["🔒","Secured by Supabase"]' },
+  { from: /\["\?\?","Privacy compliant"\]/g, to: '["🛡️","Privacy compliant"]' },
+  { from: /\["\?\?","No credit card for trial"\]/g, to: '["💳","No credit card for trial"]' },
+  { from: /\["\?\?","Cancel anytime"\]/g, to: '["✓","Cancel anytime"]' },
 ];
 
+let count = 0;
 replacements.forEach(({ from, to }) => {
-  content = content.replace(from, to);
+  const matches = content.match(from);
+  if (matches) {
+    count += matches.length;
+    content = content.replace(from, to);
+  }
 });
 
 fs.writeFileSync(filePath, content, 'utf8');
-console.log('Fixed ? icons in app.jsx');
+console.log(`Fixed ${count} ? icons in app.jsx`);

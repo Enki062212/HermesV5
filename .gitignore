@@ -24,7 +24,7 @@ dist-ssr
 *.sw?
 
 # Environment files — NEVER commit real secrets
-.env
+# .env
 hermes-backend/.env
 *.env.local
 .vercel

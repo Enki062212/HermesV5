@@ -1,0 +1,17 @@
+﻿  const FEATURES=[
+    {icon:"?",title:"Sacred Inbox",sub:"Social Commerce",desc:"AI-powered unified inbox across Facebook, Instagram, TikTok, Shopee, Lazada & more � reply at godspeed.",color:C.gold,accent:`${C.gold}18`},
+    {icon:"?",title:"Merchant CRM",sub:"Customer Intelligence",desc:"360� customer profiles, lead scoring, pipeline management, and lifetime value tracking across all brands.",color:C.cyan,accent:`${C.cyan}18`},
+    {icon:"?",title:"Olympian ERP",sub:"Inventory & Ops",desc:"Real-time stock management, automated reorder alerts, margin analysis, and multi-brand product catalog.",color:C.green,accent:`${C.green}18`},
+    {icon:"?",title:"Oracle Analytics",sub:"Revenue Intelligence",desc:"Revenue forecasting, cohort analysis, funnel metrics, and cross-platform performance dashboards.",color:C.violet,accent:`${C.violet}18`},
+    {icon:"?",title:"Agora Demographics",sub:"Market Intelligence",desc:"Geographic heatmaps, age/gender breakdowns, behavioral segmentation and psychographic profiling.",color:C.amber,accent:`${C.amber}18`},
+    {icon:"?",title:"Pythian Research",sub:"Market Research AI",desc:"Keyword intelligence, competitor benchmarking, sentiment analysis, and AI-generated market reports.",color:C.rose,accent:`${C.rose}18`},
+    {icon:"?",title:"Hermes AI Chatbot",sub:"Conversational AI",desc:"Smart auto-replies in Taglish � trained on your brand voice, products, and FAQs. Live 24/7 across all platforms.",color:C.amber,accent:`${C.amber}18`},
+    {icon:"?",title:"Agora Social Ads",sub:"Ads Intelligence",desc:"Track ROAS, optimize ad creatives, and attribute revenue across Facebook, TikTok, and Shopee Ads.",color:C.violet,accent:`${C.violet}18`},
+  ];
+
+  const USE_CASES=[
+    {label:"E-Commerce",icon:"???",desc:"Streamline management, automation & revenue growth"},
+    {label:"Fashion",icon:"??",desc:"From design to production & multi-channel sales"},
+    {label:"Beauty & Spa",icon:"?",desc:"Scheduling, support & client management"},
+    {label:"Food & Bev",icon:"??",desc:"Orders, loyalty & customer engagement"},
+    {label:"EdTech",icon:"??",desc:"Management, automation & enrollment workflows"},
